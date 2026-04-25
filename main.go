@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/AndochBonin/polymarket/models"
 	"encoding/json"
 	"github.com/joho/godotenv"
 	"log"
@@ -53,10 +54,16 @@ func main() {
 		log.Fatal("Did not get a successful response:", resp.StatusCode)
 	}
 	
-	var markets []Market
+	var gammaMarkets []models.GammaMarket
 
-	if err := json.NewDecoder(resp.Body).Decode(&markets); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&gammaMarkets); err != nil {
 		log.Fatal(err)
+	}
+
+	var markets []models.Market
+
+	for _, gm := range gammaMarkets {
+		markets = append(markets, models.MarketFromGamma(gm))
 	}
 
 	// 2. Print first active market
@@ -64,11 +71,8 @@ func main() {
 		if m.Active {
 			log.Println("Hello, Polymarket!")
 			log.Println("Market:", m.Question)
-			log.Println("Market ID:", m.ID)
+			log.Println("Condition ID:", m.ConditionID)
 			break
 		}
 	}
-
-	// 3. Placeholder for order logic
-	log.Println("\nNext step: implement signed order placement")
 }
