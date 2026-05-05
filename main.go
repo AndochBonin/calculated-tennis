@@ -1,78 +1,68 @@
 package main
 
 import (
-	"github.com/AndochBonin/polymarket/models"
-	"encoding/json"
-	"github.com/joho/godotenv"
+	"context"
 	"log"
-	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+
+	"github.com/AndochBonin/polymarket/clob"
+	"github.com/AndochBonin/polymarket/core"
+	"github.com/AndochBonin/polymarket/gamma"
 )
-
-var (
-	apiKey     string
-	keyAddress string
-	clobUrl    string
-	gammaUrl   string
-)
-
-func makeRequest(method, url string) (*http.Response, error) {
-	req, err := http.NewRequest(method, url, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("RELAYER_API_KEY", apiKey)
-	req.Header.Set("RELAYER_API_KEY_ADDRESS", keyAddress)
-
-	client := &http.Client{}
-	return client.Do(req)
-}
 
 func main() {
-	err := godotenv.Load()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
+	// feed manager
+	feedManager := core.NewFeedManager([]core.Category{core.CategoryATP})
+	feedManager.Start(ctx)
+
+	// gamma client
+	gammaClient := gamma.NewClient()
+
+	// clob client
+	clobClient := clob.NewClient()
+
+	// atp trader
+	atpFeed, err := feedManager.Feed(core.CategoryATP)
 	if err != nil {
-		log.Println("Error loading .env")
+		feedManager.Stop()
+		log.Fatalf("failed to get ATP feed: %v", err)
 	}
 
-	apiKey = os.Getenv("RELAYER_API_KEY")
-	keyAddress = os.Getenv("RELAYER_API_KEY_ADDRESS")
-	gammaUrl = os.Getenv("GAMMA_BASE_URL")
-
-	if apiKey == "" || keyAddress == "" || gammaUrl == "" {
-		log.Fatal("Missing environment variables")
+	atpTrader := core.NewATPTrader(gammaClient, clobClient, atpFeed)
+	if err := atpTrader.Start(ctx); err != nil {
+		feedManager.Stop()
+		log.Fatalf("failed to start ATP trader: %v", err)
 	}
 
-	resp, err := makeRequest("GET", gammaUrl+"/markets")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != 200 {
-		log.Fatal("Did not get a successful response:", resp.StatusCode)
-	}
-	
-	var gammaMarkets []models.GammaMarket
-
-	if err := json.NewDecoder(resp.Body).Decode(&gammaMarkets); err != nil {
-		log.Fatal(err)
-	}
-
-	var markets []models.Market
-
-	for _, gm := range gammaMarkets {
-		markets = append(markets, models.MarketFromGamma(gm))
-	}
-
-	// 2. Print first active market
-	for _, m := range markets {
-		if m.Active {
-			log.Println("Hello, Polymarket!")
-			log.Println("Market:", m.Question)
-			log.Println("Condition ID:", m.ConditionID)
-			break
+	// Drain signals until shutdown. Exits when ctx is cancelled (root cancel runs before
+	// explicit Stop) or when the signals channel is closed. Money Manager will handle this later.
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case sig, ok := <-atpTrader.Signals():
+				if !ok {
+					return
+				}
+				log.Printf("[main] signal received | token=%s side=%s", sig.TokenID, sig.Side)
+			}
 		}
-	}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	<-quit
+
+	cancel()
+	atpTrader.Stop()
+	feedManager.Stop()
+
+	log.Println("shutting down")
 }

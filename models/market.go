@@ -10,6 +10,7 @@ import (
 // Used only for deserialization — map to Market for domain use.
 type GammaMarket struct {
 	ConditionID           string          `json:"conditionId"`
+	Slug                  string          `json:"slug"`
 	Question              string          `json:"question"`
 	Category              string          `json:"category"`
 	EndDate               time.Time       `json:"endDate"`
@@ -41,6 +42,7 @@ type GammaMarket struct {
 // Market is the domain model used throughout the engine.
 type Market struct {
 	ConditionID     string
+	Slug            string
 	Question        string
 	Category        string
 	Tags            []string
@@ -67,6 +69,7 @@ func MarketFromGamma(g GammaMarket) Market {
 	// parse outcomes, token IDs and prices from JSON strings here
 	return Market{
 		ConditionID:     g.ConditionID,
+		Slug:            g.Slug,
 		Question:        g.Question,
 		Category:        g.Category,
 		EndDate:         g.EndDate,
