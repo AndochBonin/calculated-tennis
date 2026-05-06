@@ -3,7 +3,8 @@ package core
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 
@@ -12,78 +13,101 @@ import (
 	"github.com/AndochBonin/polymarket/models"
 )
 
+type atpSubscription struct {
+	tokenID string
+	ch      chan any
+}
+
 type ATPTrader struct {
 	gammaClient *gamma.Client
 	clobClient  *clob.Client
 	feed        *CategoryFeed
+	market      models.GammaMarket
+	subs        []atpSubscription
 	signals     chan TradeSignal
 	stop        chan struct{}
 	listenersWg sync.WaitGroup
 	stopOnce    sync.Once
 }
 
-func NewATPTrader(gammaClient *gamma.Client, clobClient *clob.Client, categoryFeed *CategoryFeed) *ATPTrader {
+func NewATPTrader(gammaClient *gamma.Client, clobClient *clob.Client, categoryFeed *CategoryFeed, market models.GammaMarket) *ATPTrader {
 	return &ATPTrader{
 		gammaClient: gammaClient,
 		clobClient:  clobClient,
 		feed:        categoryFeed,
+		market:      market,
 		signals:     make(chan TradeSignal, 100),
 		stop:        make(chan struct{}),
 	}
 }
 
+// FilterATPMarkets returns markets that pass ATP discovery filters used at startup.
+func FilterATPMarkets(markets []models.GammaMarket) []models.GammaMarket {
+	out := make([]models.GammaMarket, 0, len(markets))
+	for _, m := range markets {
+		if !m.EnableOrderBook || !strings.HasPrefix(m.Slug, "atp-") {
+			continue
+		}
+		var tokenIDs []string
+		if err := json.Unmarshal([]byte(m.ClobTokenIds), &tokenIDs); err != nil || len(tokenIDs) == 0 {
+			continue
+		}
+		var outcomeNames []string
+		if err := json.Unmarshal([]byte(m.Outcomes), &outcomeNames); err != nil {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
 func (t *ATPTrader) Start(ctx context.Context) error {
-	closed := false
-	markets, err := t.gammaClient.GetMarkets(ctx, gamma.MarketsParams{
-		TagID:             int(TagATP),
-		Closed:            &closed,
-		SportsMarketTypes: []string{"moneyline"},
-	})
-	if err != nil {
-		return err
+	market := t.market
+
+	var tokenIDs []string
+	if err := json.Unmarshal([]byte(market.ClobTokenIds), &tokenIDs); err != nil {
+		return fmt.Errorf("parse clob token ids for %s: %w", market.ConditionID, err)
+	}
+	if len(tokenIDs) == 0 {
+		return fmt.Errorf("zero clob tokens for market %s", market.ConditionID)
 	}
 
-	log.Printf("[ATP] fetched %d markets", len(markets))
+	var outcomeNames []string
+	if err := json.Unmarshal([]byte(market.Outcomes), &outcomeNames); err != nil {
+		return fmt.Errorf("parse outcomes for %s: %w", market.ConditionID, err)
+	}
 
-	for _, market := range markets {
-		if !market.EnableOrderBook {
+	slog.Info("start ATP market",
+		append([]any{
+			"slug", market.Slug,
+			"tokens", len(tokenIDs),
+		}, AppendVerboseIDs("condition_id", market.ConditionID)...)...,
+	)
+
+	for i, tokenID := range tokenIDs {
+		name := market.Question
+		if i < len(outcomeNames) {
+			name = market.Question + " — " + outcomeNames[i]
+		}
+
+		ch := make(chan any, 100)
+		if err := t.feed.Subscribe(tokenID, name, ch); err != nil {
+			slog.Warn("failed to subscribe",
+				append([]any{
+					"name", name,
+					"err", err,
+				}, AppendVerboseIDs("token_id", tokenID)...)...,
+			)
 			continue
 		}
 
-		if !strings.HasPrefix(market.Slug, "atp-") {
-			continue
-		}
+		t.subs = append(t.subs, atpSubscription{tokenID: tokenID, ch: ch})
 
-		var tokenIDs []string
-		if err := json.Unmarshal([]byte(market.ClobTokenIds), &tokenIDs); err != nil {
-			log.Printf("[ATP] failed to parse token ids for market %s: %v", market.ConditionID, err)
-			continue
-		}
-
-		var outcomeNames []string
-		if err := json.Unmarshal([]byte(market.Outcomes), &outcomeNames); err != nil {
-			log.Printf("[ATP] failed to parse outcomes for market %s: %v", market.ConditionID, err)
-			continue
-		}
-
-		for i, tokenID := range tokenIDs {
-			name := market.Question
-			if i < len(outcomeNames) {
-				name = market.Question + " — " + outcomeNames[i]
-			}
-
-			ch := make(chan any, 100)
-			if err := t.feed.Subscribe(tokenID, name, ch); err != nil {
-				log.Printf("[ATP] failed to subscribe | name=%s error=%v", name, err)
-				continue
-			}
-
-			t.listenersWg.Add(1)
-			t.listenersWg.Go(func() {
-				defer t.listenersWg.Done()
-				t.listen(ctx, tokenID, name, ch)
-			})
-		}
+		t.listenersWg.Add(1)
+		go func(tokenID, name string, recv <-chan any) {
+			defer t.listenersWg.Done()
+			t.listen(ctx, tokenID, name, recv)
+		}(tokenID, name, ch)
 	}
 
 	return nil
@@ -114,33 +138,85 @@ func (t *ATPTrader) handle(tokenID string, name string, event any) {
 				continue
 			}
 			// calculate what to trade signal to send
-			log.Printf("[ATP] price event | name=%s side=%s price=%s",
-				name, change.Side, change.Price)
+			slog.Info("price event",
+				append([]any{
+					"name", name,
+					"side", change.Side,
+					"price", change.Price,
+				}, AppendVerboseIDs("token_id", tokenID)...)...,
+			)
 		}
 	case models.SportEvent:
-		log.Printf("[ATP] sport event | name=%s slug=%s score=%s period=%s elapsed=%s live=%v ended=%v",
-			name, e.Slug, e.Score, e.Period, e.Elapsed, e.Live, e.Ended)
+		slog.Info("sport event",
+			append([]any{
+				"name", name,
+				"slug", e.Slug,
+				"score", e.Score,
+				"period", e.Period,
+				"elapsed", e.Elapsed,
+				"live", e.Live,
+				"ended", e.Ended,
+			}, AppendVerboseIDs("token_id", tokenID)...)...,
+		)
+	case models.BookEvent:
+		slog.Info("book event",
+			append([]any{
+				"name", name,
+				"bids", len(e.Bids),
+				"asks", len(e.Asks),
+			}, AppendVerboseIDs("market", e.Market)...)...,
+		)
+	case models.MarketResolvedEvent:
+		if !strings.EqualFold(e.Market, t.market.ConditionID) {
+			return
+		}
+		slog.Info("market resolved, stopping ATP trader",
+			append([]any{
+				"slug", t.market.Slug,
+				"winning_asset_id", e.WinningAssetID,
+				"winning_outcome", e.WinningOutcome,
+				"timestamp", e.Timestamp,
+			}, AppendVerboseIDs(
+				"condition_id", t.market.ConditionID,
+				"market", e.Market,
+			)...)...,
+		)
+		go t.Stop()
 	case error:
-		log.Printf("[DEBUG] go to error event: %v", e)
+		slog.Error("error event",
+			append([]any{
+				"name", name,
+				"err", e,
+			}, AppendVerboseIDs("token_id", tokenID)...)...,
+		)
 	default:
-		log.Printf("[DEBUG] event type: %v", e)
+		slog.Error("unknown event type",
+			append([]any{
+				"name", name,
+				"event_type", fmt.Sprintf("%T", e),
+			}, AppendVerboseIDs("token_id", tokenID)...)...,
+		)
 	}
 }
 
 func (t *ATPTrader) Stop() {
 	t.stopOnce.Do(func() {
-		for token, metas := range t.feed.subscribers {
-			for _, m := range metas {
-				err := t.feed.Unsubscribe(token, m.ch)
-				if err != nil {
-					log.Printf("[ATP] failed to unsubscribe | name=%s", m.name)
-				} else {
-					log.Printf("[ATP] unsubscribed | name=%s", m.name)
-				}
+		for _, sub := range t.subs {
+			if err := t.feed.Unsubscribe(sub.tokenID, sub.ch); err != nil {
+				slog.Warn("failed to unsubscribe",
+					append([]any{
+						"err", err,
+					}, AppendVerboseIDs("token_id", sub.tokenID)...)...,
+				)
+			} else {
+				slog.Info("unsubscribed",
+					AppendVerboseIDs("token_id", sub.tokenID)...,
+				)
 			}
 		}
 		close(t.stop)
 		t.listenersWg.Wait()
+		close(t.signals)
 	})
 }
 

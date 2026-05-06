@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -96,7 +96,11 @@ func (f *CategoryFeed) connectLoop() {
 			if f.ctx.Err() != nil {
 				return
 			}
-			log.Printf("[%s] connection failed: %v — retrying in %s", f.category, err, delay)
+			slog.Warn("connection failed, retrying",
+				"category", f.category,
+				"err", err,
+				"retry_in", delay,
+			)
 			f.broadcastError(fmt.Errorf("disconnected: %w", err))
 			if f.sleepOrDone(delay) {
 				return
@@ -125,7 +129,10 @@ func (f *CategoryFeed) connectLoop() {
 
 		if len(tokenIDs) > 0 {
 			if err := f.sendSubscribe(tokenIDs); err != nil {
-				log.Printf("[%s] subscribe failed: %v", f.category, err)
+				slog.Warn("subscribe failed",
+					"category", f.category,
+					"err", err,
+				)
 			} else {
 				f.mu.RLock()
 				for _, id := range tokenIDs {
@@ -133,7 +140,9 @@ func (f *CategoryFeed) connectLoop() {
 					if metas := f.subscribers[id]; len(metas) > 0 {
 						name = metas[0].name
 					}
-					log.Printf("[%s] subscribed token=%s name=%s", f.category, id, name)
+					slog.Info("subscribed token",
+						append([]any{"category", f.category, "name", name}, AppendVerboseIDs("token_id", id)...)...,
+					)
 				}
 				f.mu.RUnlock()
 			}
@@ -143,7 +152,11 @@ func (f *CategoryFeed) connectLoop() {
 		go f.runHeartbeat(conn, heartbeatCtx)
 
 		if err := f.readLoop(conn); err != nil {
-			log.Printf("[%s] read loop ended: %v — reconnecting in %s", f.category, err, delay)
+			slog.Warn("read loop ended, reconnecting",
+				"category", f.category,
+				"err", err,
+				"retry_in", delay,
+			)
 			f.broadcastError(fmt.Errorf("disconnected: %w", err))
 		}
 		cancelHeartbeat()
@@ -214,13 +227,15 @@ func (f *CategoryFeed) dispatch(msg []byte) {
 	}
 
 	if err := json.Unmarshal(msg, &base); err != nil {
-		log.Printf("[DEBUG] error unmarshalling message: %v", err)
+		slog.Debug("error unmarshalling message",
+			"category", f.category,
+			"err", err,
+		)
 		return
 	}
 
 	switch base.EventType {
 	case "price_change":
-		log.Println("[DEBUG] PRICE CHANGE EVENT")
 		var e models.PriceEvent
 		if err := json.Unmarshal(msg, &e); err != nil {
 			return
@@ -289,7 +304,10 @@ func (f *CategoryFeed) runHeartbeat(conn *websocket.Conn, ctx context.Context) {
 			err := conn.WriteJSON(ping)
 			f.connWriteMu.Unlock()
 			if err != nil {
-				log.Printf("[%s] heartbeat write failed: %v", f.category, err)
+				slog.Warn("heartbeat write failed",
+					"category", f.category,
+					"err", err,
+				)
 			} else {
 				//log.Printf("[%s] heartbeat ping", f.category)
 			}
@@ -304,8 +322,9 @@ func (f *CategoryFeed) sendSubscribe(tokenIDs []string) error {
 		return nil
 	}
 	msg := map[string]any{
-		"assets_ids": tokenIDs,
-		"type":      "market",
+		"assets_ids":             tokenIDs,
+		"type":                   "market",
+		"custom_feature_enabled": true,
 	}
 	return f.conn.WriteJSON(msg)
 }
@@ -321,9 +340,13 @@ func (f *CategoryFeed) Subscribe(tokenID string, name string, ch chan<- any) err
 
 	if !exists && f.conn != nil {
 		if err := f.sendSubscribe([]string{tokenID}); err != nil {
-			log.Printf("[%s] subscribe failed token=%s name=%s: %v", f.category, tokenID, name, err)
+			slog.Warn("subscribe failed",
+				append([]any{"category", f.category, "name", name, "err", err}, AppendVerboseIDs("token_id", tokenID)...)...,
+			)
 		} else {
-			log.Printf("[%s] subscribed token=%s name=%s", f.category, tokenID, name)
+			slog.Info("subscribed token",
+				append([]any{"category", f.category, "name", name}, AppendVerboseIDs("token_id", tokenID)...)...,
+			)
 		}
 	}
 
@@ -398,11 +421,4 @@ func (m *FeedManager) Feed(cat Category) (*CategoryFeed, error) {
 		return nil, fmt.Errorf("no feed for category %s", cat)
 	}
 	return f, nil
-}
-
-func min(a, b time.Duration) time.Duration {
-	if a < b {
-		return a
-	}
-	return b
 }
