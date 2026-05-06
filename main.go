@@ -17,6 +17,37 @@ import (
 	"github.com/joho/godotenv"
 )
 
+type gammaMarketsFetcher interface {
+	GetMarkets(context.Context, gamma.MarketsParams) ([]models.GammaMarket, error)
+}
+
+type traderRunner interface {
+	Start(context.Context) error
+	Stop()
+	Signals() <-chan core.TradeSignal
+}
+
+type feedManagerRunner interface {
+	Start(context.Context)
+	Stop()
+	Feed(core.Category) (*core.CategoryFeed, error)
+}
+
+var (
+	newFeedManager = func(categories []core.Category) feedManagerRunner {
+		return core.NewFeedManager(categories)
+	}
+	newGammaClient = gamma.NewClient
+	newClobClient  = clob.NewClient
+	newATPTrader   = func(gammaClient *gamma.Client, clobClient *clob.Client, atpFeed *core.CategoryFeed, market models.GammaMarket) traderRunner {
+		return core.NewATPTrader(gammaClient, clobClient, atpFeed, market)
+	}
+)
+
+func noopSignalHandler(core.TradeSignal) {
+	// Explicit no-op for tests that only assert lifecycle behavior.
+}
+
 func logLevelFromEnv() slog.Level {
 	levelStr := strings.TrimSpace(os.Getenv("LOG_LEVEL"))
 	if levelStr == "" {
@@ -59,8 +90,8 @@ func setupLogging() {
 	}
 }
 
-func startATPStack(ctx context.Context) (*core.FeedManager, *core.CategoryFeed, error) {
-	feedManager := core.NewFeedManager([]core.Category{core.CategoryATP})
+func startATPStack(ctx context.Context) (feedManagerRunner, *core.CategoryFeed, error) {
+	feedManager := newFeedManager([]core.Category{core.CategoryATP})
 	feedManager.Start(ctx)
 	atpFeed, err := feedManager.Feed(core.CategoryATP)
 	if err != nil {
@@ -71,10 +102,10 @@ func startATPStack(ctx context.Context) (*core.FeedManager, *core.CategoryFeed, 
 }
 
 func newClients() (*gamma.Client, *clob.Client) {
-	return gamma.NewClient(), clob.NewClient()
+	return newGammaClient(), newClobClient()
 }
 
-func fetchATPMarkets(ctx context.Context, gammaClient *gamma.Client) ([]models.GammaMarket, error) {
+func fetchATPMarkets(ctx context.Context, gammaClient gammaMarketsFetcher) ([]models.GammaMarket, error) {
 	closed := false
 	return gammaClient.GetMarkets(ctx, gamma.MarketsParams{
 		TagID:             int(core.TagATP),
@@ -89,10 +120,10 @@ func startATPTraders(
 	clobClient *clob.Client,
 	atpFeed *core.CategoryFeed,
 	markets []models.GammaMarket,
-) []*core.ATPTrader {
-	var atpTraders []*core.ATPTrader
+) []traderRunner {
+	var atpTraders []traderRunner
 	for _, m := range markets {
-		tr := core.NewATPTrader(gammaClient, clobClient, atpFeed, m)
+		tr := newATPTrader(gammaClient, clobClient, atpFeed, m)
 		if err := tr.Start(ctx); err != nil {
 			slog.Warn("skip market",
 				append([]any{"err", err}, core.AppendVerboseIDs("condition_id", m.ConditionID)...)...)
@@ -103,7 +134,7 @@ func startATPTraders(
 	return atpTraders
 }
 
-func forwardAllTraderSignals(ctx context.Context, traders []*core.ATPTrader) (<-chan core.TradeSignal, *sync.WaitGroup) {
+func forwardAllTraderSignals(ctx context.Context, traders []traderRunner) (<-chan core.TradeSignal, *sync.WaitGroup) {
 	signalCh := make(chan core.TradeSignal, 100)
 	var forwardWg sync.WaitGroup
 	for _, tr := range traders {
@@ -131,6 +162,17 @@ func forwardAllTraderSignals(ctx context.Context, traders []*core.ATPTrader) (<-
 // runSignalLogger drains signals until shutdown: when ctx is cancelled (root cancel runs before
 // explicit Stop) or when the signals channel is closed. Money Manager will handle this later.
 func runSignalLogger(ctx context.Context, signalCh <-chan core.TradeSignal) {
+	runSignalLoggerWithHandler(ctx, signalCh, func(sig core.TradeSignal) {
+		slog.Info("signal received",
+			append([]any{"side", sig.Side}, core.AppendVerboseIDs("token_id", sig.TokenID)...)...)
+	})
+}
+
+func runSignalLoggerWithHandler(ctx context.Context, signalCh <-chan core.TradeSignal, onSignal func(core.TradeSignal)) {
+	if onSignal == nil {
+		onSignal = noopSignalHandler
+	}
+
 	go func() {
 		for {
 			select {
@@ -140,8 +182,7 @@ func runSignalLogger(ctx context.Context, signalCh <-chan core.TradeSignal) {
 				if !ok {
 					return
 				}
-				slog.Info("signal received",
-					append([]any{"side", sig.Side}, core.AppendVerboseIDs("token_id", sig.TokenID)...)...)
+				onSignal(sig)
 			}
 		}
 	}()
@@ -154,17 +195,19 @@ func waitInterrupt() {
 }
 
 func shutdown(
-	traders []*core.ATPTrader,
+	traders []traderRunner,
 	forwardWg *sync.WaitGroup,
 	cancel context.CancelFunc,
-	feedManager *core.FeedManager,
+	feedManager feedManagerRunner,
 ) {
 	for _, tr := range traders {
 		tr.Stop()
 	}
 	forwardWg.Wait()
 	cancel()
-	feedManager.Stop()
+	if feedManager != nil {
+		feedManager.Stop()
+	}
 	slog.Info("shutting down")
 }
 

@@ -1,4 +1,7 @@
-COVERAGE_THRESHOLD ?= 80
+COVERAGE_THRESHOLD ?= 90
+
+run:
+	go run .
 
 test:
 	go test ./... -coverprofile=coverage.out

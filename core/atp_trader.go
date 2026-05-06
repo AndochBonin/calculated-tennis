@@ -91,15 +91,7 @@ func (t *ATPTrader) Start(ctx context.Context) error {
 		}
 
 		ch := make(chan any, 100)
-		if err := t.feed.Subscribe(tokenID, name, ch); err != nil {
-			slog.Warn("failed to subscribe",
-				append([]any{
-					"name", name,
-					"err", err,
-				}, AppendVerboseIDs("token_id", tokenID)...)...,
-			)
-			continue
-		}
+		t.feed.Subscribe(tokenID, name, ch)
 
 		t.subs = append(t.subs, atpSubscription{tokenID: tokenID, ch: ch})
 

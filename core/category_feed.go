@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"sync"
 	"time"
 
@@ -43,25 +44,59 @@ type tokenMeta struct {
 
 // CategoryFeed manages a single WebSocket connection for a category.
 type CategoryFeed struct {
-	category    Category
-	mu          sync.RWMutex
-	connWriteMu sync.Mutex
-	subscribers map[string][]tokenMeta
-	conn        *websocket.Conn
-	ctx         context.Context
-	stopOnce    sync.Once
+	category          Category
+	mu                sync.RWMutex
+	connWriteMu       sync.Mutex
+	subscribers       map[string][]tokenMeta
+	conn              *websocket.Conn
+	ctx               context.Context
+	stopOnce          sync.Once
+	wsURL             string
+	dialContext       func(context.Context, string, http.Header) (*websocket.Conn, *http.Response, error)
+	reconnectDelay    time.Duration
+	reconnectMaxDelay time.Duration
+	heartbeatInterval time.Duration
 }
 
 func newCategoryFeed(category Category) *CategoryFeed {
 	return &CategoryFeed{
-		category:    category,
-		subscribers: make(map[string][]tokenMeta),
+		category:          category,
+		subscribers:       make(map[string][]tokenMeta),
+		wsURL:             wsURL,
+		dialContext:       defaultWSDialContext,
+		reconnectDelay:    reconnectDelay,
+		reconnectMaxDelay: reconnectMaxDelay,
+		heartbeatInterval: heartbeatInterval,
+	}
+}
+
+func defaultWSDialContext(ctx context.Context, url string, header http.Header) (*websocket.Conn, *http.Response, error) {
+	var dialer websocket.Dialer
+	return dialer.DialContext(ctx, url, header)
+}
+
+func (f *CategoryFeed) ensureDefaults() {
+	if f.wsURL == "" {
+		f.wsURL = wsURL
+	}
+	if f.dialContext == nil {
+		f.dialContext = defaultWSDialContext
+	}
+	if f.reconnectDelay <= 0 {
+		f.reconnectDelay = reconnectDelay
+	}
+	if f.reconnectMaxDelay <= 0 {
+		f.reconnectMaxDelay = reconnectMaxDelay
+	}
+	if f.heartbeatInterval <= 0 {
+		f.heartbeatInterval = heartbeatInterval
 	}
 }
 
 // Start connects and begins the read loop with automatic reconnection.
 // ctx must be non-nil; cancellation stops reconnects and dial attempts.
 func (f *CategoryFeed) Start(ctx context.Context) {
+	f.ensureDefaults()
 	f.ctx = ctx
 	go f.connectLoop()
 }
@@ -82,8 +117,7 @@ func (f *CategoryFeed) Stop() {
 }
 
 func (f *CategoryFeed) connectLoop() {
-	var dialer websocket.Dialer
-	delay := reconnectDelay
+	delay := f.reconnectDelay
 	for {
 		select {
 		case <-f.ctx.Done():
@@ -91,7 +125,7 @@ func (f *CategoryFeed) connectLoop() {
 		default:
 		}
 
-		conn, _, err := dialer.DialContext(f.ctx, wsURL, nil)
+		conn, _, err := f.dialContext(f.ctx, f.wsURL, nil)
 		if err != nil {
 			if f.ctx.Err() != nil {
 				return
@@ -105,7 +139,7 @@ func (f *CategoryFeed) connectLoop() {
 			if f.sleepOrDone(delay) {
 				return
 			}
-			delay = min(delay*2, reconnectMaxDelay)
+			delay = min(delay*2, f.reconnectMaxDelay)
 			continue
 		}
 
@@ -114,7 +148,7 @@ func (f *CategoryFeed) connectLoop() {
 			return
 		}
 
-		delay = reconnectDelay
+		delay = f.reconnectDelay
 		f.mu.Lock()
 		f.conn = conn
 		f.mu.Unlock()
@@ -173,7 +207,7 @@ func (f *CategoryFeed) connectLoop() {
 		if f.sleepOrDone(delay) {
 			return
 		}
-		delay = min(delay*2, reconnectMaxDelay)
+		delay = min(delay*2, f.reconnectMaxDelay)
 	}
 }
 
@@ -229,6 +263,7 @@ func (f *CategoryFeed) dispatch(msg []byte) {
 	if err := json.Unmarshal(msg, &base); err != nil {
 		slog.Debug("error unmarshalling message",
 			"category", f.category,
+			"message", msg,
 			"err", err,
 		)
 		return
@@ -292,7 +327,7 @@ func (f *CategoryFeed) broadcastError(err error) {
 }
 
 func (f *CategoryFeed) runHeartbeat(conn *websocket.Conn, ctx context.Context) {
-	ticker := time.NewTicker(heartbeatInterval)
+	ticker := time.NewTicker(f.heartbeatInterval)
 	defer ticker.Stop()
 	ping := map[string]any{}
 	for {
@@ -324,6 +359,7 @@ func (f *CategoryFeed) sendSubscribe(tokenIDs []string) error {
 	msg := map[string]any{
 		"assets_ids":             tokenIDs,
 		"type":                   "market",
+		"initial_dump":           false,
 		"custom_feature_enabled": true,
 	}
 	return f.conn.WriteJSON(msg)
@@ -331,7 +367,8 @@ func (f *CategoryFeed) sendSubscribe(tokenIDs []string) error {
 
 // Subscribe registers a channel to receive events for a token ID.
 // If the token ID is not yet subscribed on the connection, it is added.
-func (f *CategoryFeed) Subscribe(tokenID string, name string, ch chan<- any) error {
+// Network subscribe sends are best effort; failures are logged and retried on reconnect.
+func (f *CategoryFeed) Subscribe(tokenID string, name string, ch chan<- any) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -350,7 +387,6 @@ func (f *CategoryFeed) Subscribe(tokenID string, name string, ch chan<- any) err
 		}
 	}
 
-	return nil
 }
 
 func (f *CategoryFeed) sendUnsubscribe(tokenIDs []string) error {

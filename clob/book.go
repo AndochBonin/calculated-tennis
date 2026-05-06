@@ -9,7 +9,7 @@ import (
 )
 
 func (c *Client) GetOrderBook(tokenID string) (*models.OrderBook, error) {
-	u, err := url.Parse(clobBaseURL + "/book")
+	u, err := url.Parse(c.baseURL + "/book")
 	if err != nil {
 		return nil, fmt.Errorf("parse url: %w", err)
 	}

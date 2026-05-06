@@ -5,7 +5,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -235,6 +237,74 @@ func TestCategoryFeedSleepOrDone(t *testing.T) {
 	})
 }
 
+func TestCategoryFeedEnsureDefaults(t *testing.T) {
+	assertFeedConfig := func(t *testing.T, feed *CategoryFeed, wantWSURL string, wantDialPtr uintptr, wantReconnectDelay, wantReconnectMaxDelay, wantHeartbeat time.Duration) {
+		t.Helper()
+		if feed.wsURL != wantWSURL {
+			t.Fatalf("expected wsURL %q, got %q", wantWSURL, feed.wsURL)
+		}
+		if reflect.ValueOf(feed.dialContext).Pointer() != wantDialPtr {
+			t.Fatal("unexpected dialContext function pointer")
+		}
+		if feed.reconnectDelay != wantReconnectDelay {
+			t.Fatalf("expected reconnectDelay %v, got %v", wantReconnectDelay, feed.reconnectDelay)
+		}
+		if feed.reconnectMaxDelay != wantReconnectMaxDelay {
+			t.Fatalf("expected reconnectMaxDelay %v, got %v", wantReconnectMaxDelay, feed.reconnectMaxDelay)
+		}
+		if feed.heartbeatInterval != wantHeartbeat {
+			t.Fatalf("expected heartbeatInterval %v, got %v", wantHeartbeat, feed.heartbeatInterval)
+		}
+	}
+
+	t.Run("fills all missing and invalid defaults", func(t *testing.T) {
+		feed := &CategoryFeed{
+			category:    CategoryATP,
+			subscribers: make(map[string][]tokenMeta),
+		}
+
+		feed.ensureDefaults()
+
+		assertFeedConfig(
+			t,
+			feed,
+			wsURL,
+			reflect.ValueOf(defaultWSDialContext).Pointer(),
+			reconnectDelay,
+			reconnectMaxDelay,
+			heartbeatInterval,
+		)
+	})
+
+	t.Run("preserves explicit non-zero custom values", func(t *testing.T) {
+		customDial := func(ctx context.Context, url string, header http.Header) (*websocket.Conn, *http.Response, error) {
+			return nil, nil, errors.New("expected not to dial in this test")
+		}
+
+		feed := &CategoryFeed{
+			category:          CategoryATP,
+			subscribers:       make(map[string][]tokenMeta),
+			wsURL:             "ws://example.test/ws",
+			dialContext:       customDial,
+			reconnectDelay:    123 * time.Millisecond,
+			reconnectMaxDelay: 456 * time.Millisecond,
+			heartbeatInterval: 789 * time.Millisecond,
+		}
+
+		feed.ensureDefaults()
+
+		assertFeedConfig(
+			t,
+			feed,
+			"ws://example.test/ws",
+			reflect.ValueOf(customDial).Pointer(),
+			123*time.Millisecond,
+			456*time.Millisecond,
+			789*time.Millisecond,
+		)
+	})
+}
+
 func TestCategoryFeedSubscribeWithActiveConnSendsSubscribeMessage(t *testing.T) {
 	conn, incoming, cleanup := newWebsocketTestConn(t)
 	defer cleanup()
@@ -243,9 +313,7 @@ func TestCategoryFeedSubscribeWithActiveConnSendsSubscribeMessage(t *testing.T) 
 	feed.conn = conn
 	ch := make(chan any, 1)
 
-	if err := feed.Subscribe("asset-1", "market-1", ch); err != nil {
-		t.Fatalf("subscribe returned error: %v", err)
-	}
+	feed.Subscribe("asset-1", "market-1", ch)
 
 	msg := mustReceiveWSMessage(t, incoming)
 	if msg["type"] != "market" {
@@ -289,6 +357,99 @@ func TestCategoryFeedUnsubscribeWithActiveConnOnlyOnLastSubscriber(t *testing.T)
 	assertAssetsIDsContains(t, msg, "asset-1")
 }
 
+func TestCategoryFeedSendSubscribeWriteError(t *testing.T) {
+	clientConn, serverConn, cleanup := newWebsocketPair(t)
+	defer cleanup()
+
+	feed := newCategoryFeed(CategoryATP)
+	feed.conn = clientConn
+
+	_ = clientConn.Close()
+	_ = serverConn.Close()
+
+	err := feed.sendSubscribe([]string{"asset-err"})
+	if err == nil {
+		t.Fatal("expected sendSubscribe to return write error when websocket is closed")
+	}
+}
+
+func TestCategoryFeedSendSubscribeWithNilConnIsNoOp(t *testing.T) {
+	feed := newCategoryFeed(CategoryATP)
+
+	err := feed.sendSubscribe([]string{"asset-1"})
+	if err != nil {
+		t.Fatalf("expected nil error when connection is nil, got %v", err)
+	}
+}
+
+func TestCategoryFeedSendUnsubscribeWriteError(t *testing.T) {
+	clientConn, serverConn, cleanup := newWebsocketPair(t)
+	defer cleanup()
+
+	feed := newCategoryFeed(CategoryATP)
+	feed.conn = clientConn
+
+	_ = clientConn.Close()
+	_ = serverConn.Close()
+
+	err := feed.sendUnsubscribe([]string{"asset-err"})
+	if err == nil {
+		t.Fatal("expected sendUnsubscribe to return write error when websocket is closed")
+	}
+}
+
+func TestCategoryFeedSendUnsubscribeWithNilConnIsNoOp(t *testing.T) {
+	feed := newCategoryFeed(CategoryATP)
+
+	err := feed.sendUnsubscribe([]string{"asset-1"})
+	if err != nil {
+		t.Fatalf("expected nil error when connection is nil, got %v", err)
+	}
+}
+
+func TestCategoryFeedSubscribeWithActiveConnWriteFailureStillRegistersSubscriber(t *testing.T) {
+	clientConn, serverConn, cleanup := newWebsocketPair(t)
+	defer cleanup()
+
+	feed := newCategoryFeed(CategoryATP)
+	feed.conn = clientConn
+	events := make(chan any, 1)
+
+	_ = clientConn.Close()
+	_ = serverConn.Close()
+
+	feed.Subscribe("asset-err", "market-err", events)
+
+	metas := feed.subscribers["asset-err"]
+	if len(metas) != 1 {
+		t.Fatalf("expected subscriber to be registered despite write failure, got %d", len(metas))
+	}
+}
+
+func TestCategoryFeedSubscribeExistingTokenWithActiveConnSkipsDuplicateSend(t *testing.T) {
+	conn, incoming, cleanup := newWebsocketTestConn(t)
+	defer cleanup()
+
+	feed := newCategoryFeed(CategoryATP)
+	feed.conn = conn
+	first := make(chan any, 1)
+	second := make(chan any, 1)
+	feed.subscribers["asset-1"] = []tokenMeta{{name: "first", ch: first}}
+
+	feed.Subscribe("asset-1", "second", second)
+
+	select {
+	case msg := <-incoming:
+		t.Fatalf("did not expect subscribe message for existing token, got %#v", msg)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	metas := feed.subscribers["asset-1"]
+	if len(metas) != 2 {
+		t.Fatalf("expected second subscriber to be appended, got %d", len(metas))
+	}
+}
+
 func newWebsocketTestConn(t *testing.T) (*websocket.Conn, <-chan map[string]any, func()) {
 	t.Helper()
 
@@ -323,6 +484,28 @@ func newWebsocketTestConn(t *testing.T) (*websocket.Conn, <-chan map[string]any,
 		server.Close()
 	}
 	return clientConn, incoming, cleanup
+}
+
+func newDrainReadWebsocketServer(t *testing.T) (string, <-chan *websocket.Conn, func()) {
+	t.Helper()
+
+	serverConns := make(chan *websocket.Conn, 4)
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serverConn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		serverConns <- serverConn
+		defer serverConn.Close()
+		for {
+			if _, _, err := serverConn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+
+	return "ws" + strings.TrimPrefix(server.URL, "http"), serverConns, server.Close
 }
 
 func mustReceiveWSMessage(t *testing.T, incoming <-chan map[string]any) map[string]any {
@@ -386,4 +569,574 @@ func TestFeedManagerLifecycleAndLookup(t *testing.T) {
 	cancel()
 	manager.Start(ctx)
 	manager.Stop()
+}
+
+func TestCategoryFeedStartWithInjectedWSDialerURLReconnectsAndResubscribes(t *testing.T) {
+	serverConns := make(chan *websocket.Conn, 4)
+	incoming := make(chan map[string]any, 16)
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serverConn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		serverConns <- serverConn
+		defer serverConn.Close()
+		for {
+			var msg map[string]any
+			if err := serverConn.ReadJSON(&msg); err != nil {
+				return
+			}
+			incoming <- msg
+		}
+	}))
+	defer server.Close()
+
+	feed := newCategoryFeed(CategoryATP)
+	feed.wsURL = "ws" + strings.TrimPrefix(server.URL, "http")
+	feed.reconnectDelay = 10 * time.Millisecond
+	feed.reconnectMaxDelay = 20 * time.Millisecond
+	feed.heartbeatInterval = time.Hour
+	var dialCalls atomic.Int32
+	feed.dialContext = func(ctx context.Context, url string, header http.Header) (*websocket.Conn, *http.Response, error) {
+		dialCalls.Add(1)
+		return websocket.DefaultDialer.DialContext(ctx, url, header)
+	}
+
+	events := make(chan any, 4)
+	feed.Subscribe("asset-1", "asset-one", events)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	feed.Start(ctx)
+	defer feed.Stop()
+
+	conn1 := mustReceiveServerConn(t, serverConns)
+	first := mustReceiveWSMessage(t, incoming)
+	if first["type"] != "market" {
+		t.Fatalf("expected initial market subscribe, got %#v", first["type"])
+	}
+	assertAssetsIDsContains(t, first, "asset-1")
+
+	if err := conn1.WriteMessage(websocket.TextMessage, []byte(`{
+		"event_type":"price_change",
+		"market":"mkt-live",
+		"price_changes":[{"asset_id":"asset-1","price":"0.55","size":"10","side":"buy","hash":"h"}],
+		"timestamp":"2026-01-01T00:00:00Z"
+	}`)); err != nil {
+		t.Fatalf("write server event: %v", err)
+	}
+
+	select {
+	case got := <-events:
+		event, ok := got.(models.PriceEvent)
+		if !ok {
+			t.Fatalf("expected models.PriceEvent, got %T", got)
+		}
+		if event.Market != "mkt-live" {
+			t.Fatalf("unexpected market: %+v", event)
+		}
+	case <-time.After(400 * time.Millisecond):
+		t.Fatal("expected price event from injected websocket server")
+	}
+
+	if err := conn1.Close(); err != nil {
+		t.Fatalf("close first websocket connection: %v", err)
+	}
+
+	_ = mustReceiveServerConn(t, serverConns)
+	second := mustReceiveWSMessage(t, incoming)
+	if second["type"] != "market" {
+		t.Fatalf("expected market subscribe after reconnect, got %#v", second["type"])
+	}
+	assertAssetsIDsContains(t, second, "asset-1")
+
+	if dialCalls.Load() < 2 {
+		t.Fatalf("expected dialer to be called at least twice, got %d", dialCalls.Load())
+	}
+}
+
+func TestCategoryFeedStartUsesDefaultWSDialerWhenNil(t *testing.T) {
+	serverConns := make(chan *websocket.Conn, 1)
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		serverConns <- conn
+		defer conn.Close()
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+	defer server.Close()
+
+	feed := newCategoryFeed(CategoryATP)
+	feed.wsURL = "ws" + strings.TrimPrefix(server.URL, "http")
+	feed.dialContext = nil // force ensureDefaults to wire defaultWSDialContext
+	feed.reconnectDelay = 5 * time.Millisecond
+	feed.reconnectMaxDelay = 10 * time.Millisecond
+	feed.heartbeatInterval = time.Hour
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	feed.Start(ctx)
+	defer feed.Stop()
+
+	conn := mustReceiveServerConn(t, serverConns)
+	_ = conn.Close()
+}
+
+func TestCategoryFeedConnectLoopDialFailureBackoffAndCancel(t *testing.T) {
+	feed := newCategoryFeed(CategoryATP)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	feed.ctx = ctx
+	feed.reconnectDelay = 2 * time.Millisecond
+	feed.reconnectMaxDelay = 4 * time.Millisecond
+
+	events := make(chan any, 8)
+	feed.Subscribe("asset-1", "asset-one", events)
+
+	var attempts atomic.Int32
+	feed.dialContext = func(ctx context.Context, url string, header http.Header) (*websocket.Conn, *http.Response, error) {
+		n := attempts.Add(1)
+		if n >= 3 {
+			cancel()
+		}
+		return nil, nil, errors.New("dial fail")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		feed.connectLoop()
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("connectLoop did not stop in time")
+	}
+
+	if attempts.Load() < 2 {
+		t.Fatalf("expected multiple dial attempts, got %d", attempts.Load())
+	}
+	select {
+	case got := <-events:
+		if _, ok := got.(error); !ok {
+			t.Fatalf("expected broadcasted error on dial failure, got %T", got)
+		}
+	default:
+		t.Fatal("expected at least one broadcasted dial error")
+	}
+}
+
+func TestCategoryFeedConnectLoopReturnsWhenDialHonorsCanceledContext(t *testing.T) {
+	feed := newCategoryFeed(CategoryATP)
+	ctx, cancel := context.WithCancel(context.Background())
+	feed.ctx = ctx
+	feed.reconnectDelay = 5 * time.Millisecond
+	feed.reconnectMaxDelay = 10 * time.Millisecond
+
+	dialEntered := make(chan struct{})
+	feed.dialContext = func(ctx context.Context, url string, header http.Header) (*websocket.Conn, *http.Response, error) {
+		close(dialEntered)
+		<-ctx.Done()
+		return nil, nil, ctx.Err()
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		feed.connectLoop()
+	}()
+
+	select {
+	case <-dialEntered:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("dialContext was not entered")
+	}
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("connectLoop did not exit after context cancellation")
+	}
+}
+
+func TestCategoryFeedConnectLoopCancelAfterDialBeforeAssignClosesConnAndReturns(t *testing.T) {
+	clientConn, serverConn, cleanup := newWebsocketPair(t)
+	defer cleanup()
+
+	feed := newCategoryFeed(CategoryATP)
+	ctx, cancel := context.WithCancel(context.Background())
+	feed.ctx = ctx
+	feed.reconnectDelay = 5 * time.Millisecond
+	feed.reconnectMaxDelay = 10 * time.Millisecond
+
+	dialReady := make(chan struct{})
+	dialRelease := make(chan struct{})
+	feed.dialContext = func(ctx context.Context, url string, header http.Header) (*websocket.Conn, *http.Response, error) {
+		close(dialReady)
+		<-dialRelease
+		return clientConn, nil, nil
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		feed.connectLoop()
+	}()
+
+	select {
+	case <-dialReady:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("dialContext was not entered")
+	}
+
+	cancel()
+	close(dialRelease)
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("connectLoop did not exit after cancel before assignment")
+	}
+
+	_, _, err := serverConn.ReadMessage()
+	if err == nil {
+		t.Fatal("expected server websocket to be closed when ctx canceled after dial")
+	}
+
+	feed.mu.RLock()
+	defer feed.mu.RUnlock()
+	if feed.conn != nil {
+		t.Fatal("expected feed conn to remain nil after early cancel")
+	}
+}
+
+func TestCategoryFeedConnectLoopReconnectResubscribeWriteFailureContinues(t *testing.T) {
+	wsURL, serverConns, closeServer := newDrainReadWebsocketServer(t)
+	defer closeServer()
+
+	feed := newCategoryFeed(CategoryATP)
+	feed.wsURL = wsURL
+	feed.reconnectDelay = 10 * time.Millisecond
+	feed.reconnectMaxDelay = 20 * time.Millisecond
+	feed.heartbeatInterval = time.Hour
+
+	events := make(chan any, 4)
+	feed.Subscribe("asset-1", "asset-one", events)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	feed.ctx = ctx
+
+	var dialCalls atomic.Int32
+	feed.dialContext = func(ctx context.Context, url string, header http.Header) (*websocket.Conn, *http.Response, error) {
+		conn, resp, err := websocket.DefaultDialer.DialContext(ctx, url, header)
+		if err != nil {
+			return nil, resp, err
+		}
+		if dialCalls.Add(1) == 2 {
+			_ = conn.Close()
+		}
+		return conn, resp, nil
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		feed.connectLoop()
+	}()
+
+	firstConn := mustReceiveServerConn(t, serverConns)
+	_ = firstConn.Close() // force readLoop to exit and reconnect
+
+	_ = mustReceiveServerConn(t, serverConns) // second dial attempt happened
+
+	deadline := time.Now().Add(700 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if dialCalls.Load() >= 2 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if dialCalls.Load() < 2 {
+		t.Fatalf("expected at least 2 dial attempts, got %d", dialCalls.Load())
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(700 * time.Millisecond):
+		t.Fatal("connectLoop did not stop after cancellation")
+	}
+}
+
+func TestCategoryFeedConnectLoopCancelDuringBackoffSleepExits(t *testing.T) {
+	feed := newCategoryFeed(CategoryATP)
+	ctx, cancel := context.WithCancel(context.Background())
+	feed.ctx = ctx
+	feed.reconnectDelay = 150 * time.Millisecond
+	feed.reconnectMaxDelay = 300 * time.Millisecond
+
+	firstDialAttempt := make(chan struct{})
+	feed.dialContext = func(ctx context.Context, url string, header http.Header) (*websocket.Conn, *http.Response, error) {
+		select {
+		case <-firstDialAttempt:
+		default:
+			close(firstDialAttempt)
+		}
+		return nil, nil, errors.New("dial fail")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		feed.connectLoop()
+	}()
+
+	select {
+	case <-firstDialAttempt:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("dialContext was not entered")
+	}
+
+	time.Sleep(20 * time.Millisecond) // ensure loop is in sleepOrDone backoff window
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("connectLoop did not exit after cancel during backoff")
+	}
+}
+
+func TestCategoryFeedReadLoopContextCancellationDuringReadWait(t *testing.T) {
+	clientConn, serverConn, cleanup := newWebsocketPair(t)
+	defer cleanup()
+
+	feed := newCategoryFeed(CategoryATP)
+	ctx, cancel := context.WithCancel(context.Background())
+	feed.ctx = ctx
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- feed.readLoop(clientConn)
+	}()
+
+	time.Sleep(10 * time.Millisecond)
+	cancel()
+	_ = serverConn.Close()
+
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("expected readLoop to return read error once blocked read is unblocked")
+		}
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("readLoop did not return after cancellation and connection close")
+	}
+}
+
+func TestCategoryFeedReadLoopSkipsEmptyWhitespaceAndInvalidJSON(t *testing.T) {
+	clientConn, serverConn, cleanup := newWebsocketPair(t)
+	defer cleanup()
+
+	feed := newCategoryFeed(CategoryATP)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	feed.ctx = ctx
+
+	events := make(chan any, 1)
+	feed.subscribers["asset-1"] = []tokenMeta{{name: "asset-1", ch: events}}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- feed.readLoop(clientConn)
+	}()
+
+	payloads := [][]byte{
+		[]byte(""),
+		[]byte("   \n\t "),
+		[]byte("not-json"),
+	}
+	for _, payload := range payloads {
+		if err := serverConn.WriteMessage(websocket.TextMessage, payload); err != nil {
+			t.Fatalf("write test payload: %v", err)
+		}
+	}
+
+	_ = serverConn.Close()
+
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("expected readLoop to return read error after websocket close")
+		}
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("readLoop did not exit after websocket close")
+	}
+
+	select {
+	case got := <-events:
+		t.Fatalf("did not expect dispatch/broadcast for skipped payloads, got %T", got)
+	default:
+	}
+}
+
+func TestCategoryFeedReadLoopDispatchInnerUnmarshalErrors(t *testing.T) {
+	clientConn, serverConn, cleanup := newWebsocketPair(t)
+	defer cleanup()
+
+	feed := newCategoryFeed(CategoryATP)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	feed.ctx = ctx
+
+	events := make(chan any, 1)
+	feed.subscribers["asset-1"] = []tokenMeta{{name: "asset-1", ch: events}}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- feed.readLoop(clientConn)
+	}()
+
+	messages := [][]byte{
+		[]byte(`{"event_type":"price_change","market":"m","price_changes":"bad-type"}`),
+		[]byte(`{"event_type":"sport_event","slug":1}`),
+		[]byte(`{"event_type":"book","asset_id":"asset-1","bids":"bad-type"}`),
+		[]byte(`{"event_type":"market_resolved","assets_ids":"bad-type"}`),
+	}
+	for _, msg := range messages {
+		if err := serverConn.WriteMessage(websocket.TextMessage, msg); err != nil {
+			t.Fatalf("write test payload: %v", err)
+		}
+	}
+
+	_ = serverConn.Close()
+
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("expected readLoop to return read error after websocket close")
+		}
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("readLoop did not exit after websocket close")
+	}
+
+	select {
+	case got := <-events:
+		t.Fatalf("did not expect broadcast for malformed dispatch payloads, got %T", got)
+	default:
+	}
+}
+
+func TestCategoryFeedReadLoopReturnsNilWhenContextAlreadyCanceled(t *testing.T) {
+	clientConn, _, cleanup := newWebsocketPair(t)
+	defer cleanup()
+
+	feed := newCategoryFeed(CategoryATP)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	feed.ctx = ctx
+
+	if err := feed.readLoop(clientConn); err != nil {
+		t.Fatalf("expected nil when context is already canceled, got %v", err)
+	}
+}
+
+func TestCategoryFeedRunHeartbeatTickSuccessAndWriteFailure(t *testing.T) {
+	clientConn, serverConn, cleanup := newWebsocketPair(t)
+	defer cleanup()
+
+	feed := newCategoryFeed(CategoryATP)
+	feed.heartbeatInterval = 10 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	received := make(chan struct{}, 1)
+	go func() {
+		_, _, err := serverConn.ReadMessage()
+		if err == nil {
+			received <- struct{}{}
+		}
+		_ = serverConn.Close()
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		feed.runHeartbeat(clientConn, ctx)
+	}()
+
+	select {
+	case <-received:
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("expected heartbeat ping message to be written")
+	}
+
+	time.Sleep(40 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("runHeartbeat did not stop after context cancellation")
+	}
+}
+
+func mustReceiveServerConn(t *testing.T, conns <-chan *websocket.Conn) *websocket.Conn {
+	t.Helper()
+	select {
+	case c := <-conns:
+		return c
+	case <-time.After(400 * time.Millisecond):
+		t.Fatal("timed out waiting for server websocket connection")
+		return nil
+	}
+}
+
+func newWebsocketPair(t *testing.T) (*websocket.Conn, *websocket.Conn, func()) {
+	t.Helper()
+
+	upgrader := websocket.Upgrader{}
+	serverConns := make(chan *websocket.Conn, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		serverConns <- conn
+	}))
+
+	clientConn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	if err != nil {
+		server.Close()
+		t.Fatalf("dial websocket test server: %v", err)
+	}
+
+	var serverConn *websocket.Conn
+	select {
+	case serverConn = <-serverConns:
+	case <-time.After(300 * time.Millisecond):
+		_ = clientConn.Close()
+		server.Close()
+		t.Fatal("timed out waiting for websocket server conn")
+	}
+
+	cleanup := func() {
+		_ = clientConn.Close()
+		_ = serverConn.Close()
+		server.Close()
+	}
+
+	return clientConn, serverConn, cleanup
 }

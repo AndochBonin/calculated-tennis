@@ -9,7 +9,7 @@ import (
 )
 
 func (c *Client) GetMarketPrice(tokenID string, side string) (*models.ClobMarketPrice, error) {
-	u, err := url.Parse(clobBaseURL + "/price")
+	u, err := url.Parse(c.baseURL + "/price")
 	if err != nil {
 		return nil, fmt.Errorf("parse url: %w", err)
 	}

@@ -186,6 +186,56 @@ func TestATPTraderStartValidationErrors(t *testing.T) {
 	}
 }
 
+func TestATPTraderStartAllowsOutcomeTokenLengthMismatch(t *testing.T) {
+	t.Parallel()
+
+	feed := newCategoryFeed(CategoryATP)
+	market := testMarketWithOutcomes(
+		t,
+		"atp-mismatch",
+		"0xoutcome-token-mismatch",
+		[]string{"token-yes", "token-no", "token-draw"},
+		[]string{"YES"},
+	)
+	trader := NewATPTrader(nil, nil, feed, market)
+
+	if err := trader.Start(context.Background()); err != nil {
+		t.Fatalf("start trader with mismatched outcomes/tokens: %v", err)
+	}
+
+	if len(trader.subs) != 3 {
+		t.Fatalf("expected 3 subscriptions, got %d", len(trader.subs))
+	}
+
+	feed.mu.RLock()
+	yesListeners := feed.subscribers["token-yes"]
+	noListeners := feed.subscribers["token-no"]
+	drawListeners := feed.subscribers["token-draw"]
+	feed.mu.RUnlock()
+
+	if len(yesListeners) != 1 || len(noListeners) != 1 || len(drawListeners) != 1 {
+		t.Fatalf(
+			"expected one listener per token, got yes=%d no=%d draw=%d",
+			len(yesListeners),
+			len(noListeners),
+			len(drawListeners),
+		)
+	}
+
+	if got := yesListeners[0].name; got != "atp-mismatch question — YES" {
+		t.Fatalf("expected first listener name with outcome suffix, got %q", got)
+	}
+	if got := noListeners[0].name; got != "atp-mismatch question" {
+		t.Fatalf("expected second listener fallback question name, got %q", got)
+	}
+	if got := drawListeners[0].name; got != "atp-mismatch question" {
+		t.Fatalf("expected third listener fallback question name, got %q", got)
+	}
+
+	trader.Stop()
+	waitClosed(t, trader.signals, "trader signals close after mismatch start")
+}
+
 func TestATPTraderHandleBranchesAndSignals(t *testing.T) {
 	t.Parallel()
 
@@ -377,13 +427,17 @@ func waitClosed[T any](t *testing.T, ch <-chan T, name string) {
 }
 
 func testMarket(t *testing.T, slug, conditionID string, tokenIDs []string) models.GammaMarket {
+	return testMarketWithOutcomes(t, slug, conditionID, tokenIDs, []string{"YES", "NO"})
+}
+
+func testMarketWithOutcomes(t *testing.T, slug, conditionID string, tokenIDs []string, outcomes []string) models.GammaMarket {
 	t.Helper()
 
 	tokenIDsJSON, err := json.Marshal(tokenIDs)
 	if err != nil {
 		t.Fatalf("marshal token ids: %v", err)
 	}
-	outcomesJSON, err := json.Marshal([]string{"YES", "NO"})
+	outcomesJSON, err := json.Marshal(outcomes)
 	if err != nil {
 		t.Fatalf("marshal outcomes: %v", err)
 	}

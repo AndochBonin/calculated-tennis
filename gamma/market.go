@@ -14,11 +14,47 @@ import (
 const gammaBaseURL = "https://gamma-api.polymarket.com"
 
 type Client struct {
-	http *http.Client
+	http    *http.Client
+	baseURL string
 }
 
-func NewClient() *Client {
-	return &Client{http: &http.Client{}}
+type Option func(*Client)
+
+func WithBaseURL(baseURL string) Option {
+	return func(c *Client) {
+		if baseURL != "" {
+			c.baseURL = baseURL
+		}
+	}
+}
+
+func WithHTTPClient(httpClient *http.Client) Option {
+	return func(c *Client) {
+		if httpClient != nil {
+			c.http = httpClient
+		}
+	}
+}
+
+func WithTransport(transport http.RoundTripper) Option {
+	return func(c *Client) {
+		if transport != nil {
+			c.http.Transport = transport
+		}
+	}
+}
+
+func NewClient(opts ...Option) *Client {
+	c := &Client{
+		http:    &http.Client{},
+		baseURL: gammaBaseURL,
+	}
+
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	return c
 }
 
 type MarketsParams struct {
@@ -33,50 +69,47 @@ type MarketsParams struct {
 	EndDateMax        *time.Time
 }
 
+func addIntParam(q url.Values, key string, value int) {
+	if value > 0 {
+		q.Set(key, fmt.Sprintf("%d", value))
+	}
+}
+
+func addBoolParam(q url.Values, key string, value *bool) {
+	if value != nil {
+		q.Set(key, fmt.Sprintf("%t", *value))
+	}
+}
+
+func addTimeParam(q url.Values, key string, value *time.Time) {
+	if value != nil {
+		q.Set(key, value.Format(time.RFC3339))
+	}
+}
+
 func (c *Client) GetMarkets(ctx context.Context, params MarketsParams) ([]models.GammaMarket, error) {
-	u, err := url.Parse(gammaBaseURL + "/markets")
+	u, err := url.Parse(c.baseURL + "/markets")
 	if err != nil {
 		return nil, fmt.Errorf("parse url: %w", err)
 	}
 
 	q := u.Query()
 
-	// could use reflection to do this dynamically instead of this long series of ifs 
-	if params.TagID > 0 {
-		q.Set("tag_id", fmt.Sprintf("%d", params.TagID))
-	}
-
-	if params.Closed != nil {
-		q.Set("closed", fmt.Sprintf("%t", *params.Closed))
-	}
-	if params.Limit > 0 {
-		q.Set("limit", fmt.Sprintf("%d", params.Limit))
-	}
-	if params.Offset > 0 {
-		q.Set("offset", fmt.Sprintf("%d", params.Offset))
-	}
+	addIntParam(q, "tag_id", params.TagID)
+	addBoolParam(q, "closed", params.Closed)
+	addIntParam(q, "limit", params.Limit)
+	addIntParam(q, "offset", params.Offset)
 
 	if params.SportsMarketTypes != nil || len(params.SportsMarketTypes) != 0 {
 		for _, smt := range params.SportsMarketTypes {
-			q.Set("sports_market_types", smt)
+			q.Add("sports_market_types", smt)
 		}
 	}
 
-	if params.StartDateMin != nil {
-		q.Set("start_date_min", fmt.Sprintf("%v", params.StartDateMin))
-	}
-
-	if params.StartDateMax != nil {
-		q.Set("start_date_max", fmt.Sprintf("%v", params.StartDateMax))
-	}
-
-	if params.EndDateMin != nil {
-		q.Set("end_date_min", fmt.Sprintf("%v", params.EndDateMin))
-	}
-
-	if params.EndDateMax != nil {
-		q.Set("end_date_max", fmt.Sprintf("%v", params.EndDateMax))
-	}
+	addTimeParam(q, "start_date_min", params.StartDateMin)
+	addTimeParam(q, "start_date_max", params.StartDateMax)
+	addTimeParam(q, "end_date_min", params.EndDateMin)
+	addTimeParam(q, "end_date_max", params.EndDateMax)
 
 	u.RawQuery = q.Encode()
 
