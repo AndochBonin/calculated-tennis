@@ -30,17 +30,17 @@ type traderRunner interface {
 type feedManagerRunner interface {
 	Start(context.Context)
 	Stop()
-	Feed(core.Category) (*core.CategoryFeed, error)
+	GetMarketFeed(core.Category) (*core.MarketFeed, error)
 }
 
 var (
-	newFeedManager = func(categories []core.Category) feedManagerRunner {
-		return core.NewFeedManager(categories)
+	newMarketFeedManager = func(categories []core.Category) feedManagerRunner {
+		return core.NewMarketFeedManager(categories)
 	}
 	newGammaClient = gamma.NewClient
 	newClobClient  = clob.NewClient
-	newATPTrader   = func(gammaClient *gamma.Client, clobClient *clob.Client, atpFeed *core.CategoryFeed, market models.GammaMarket) traderRunner {
-		return core.NewATPTrader(gammaClient, clobClient, atpFeed, market)
+	newATPTrader   = func(gammaClient *gamma.Client, clobClient *clob.Client, marketFeed *core.MarketFeed, market models.GammaMarket) traderRunner {
+		return core.NewATPTrader(gammaClient, clobClient, marketFeed, market)
 	}
 )
 
@@ -90,15 +90,15 @@ func setupLogging() {
 	}
 }
 
-func startATPStack(ctx context.Context) (feedManagerRunner, *core.CategoryFeed, error) {
-	feedManager := newFeedManager([]core.Category{core.CategoryATP})
+func startATPStack(ctx context.Context) (feedManagerRunner, *core.MarketFeed, error) {
+	feedManager := newMarketFeedManager([]core.Category{core.CategoryATP})
 	feedManager.Start(ctx)
-	atpFeed, err := feedManager.Feed(core.CategoryATP)
+	marketFeed, err := feedManager.GetMarketFeed(core.CategoryATP)
 	if err != nil {
 		feedManager.Stop()
 		return nil, nil, err
 	}
-	return feedManager, atpFeed, nil
+	return feedManager, marketFeed, nil
 }
 
 func newClients() (*gamma.Client, *clob.Client) {
@@ -118,12 +118,12 @@ func startATPTraders(
 	ctx context.Context,
 	gammaClient *gamma.Client,
 	clobClient *clob.Client,
-	atpFeed *core.CategoryFeed,
+	marketFeed *core.MarketFeed,
 	markets []models.GammaMarket,
 ) []traderRunner {
 	var atpTraders []traderRunner
 	for _, m := range markets {
-		tr := newATPTrader(gammaClient, clobClient, atpFeed, m)
+		tr := newATPTrader(gammaClient, clobClient, marketFeed, m)
 		if err := tr.Start(ctx); err != nil {
 			slog.Warn("skip market",
 				append([]any{"err", err}, core.AppendVerboseIDs("condition_id", m.ConditionID)...)...)
@@ -219,9 +219,9 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	feedManager, atpFeed, err := startATPStack(ctx)
+	feedManager, marketFeed, err := startATPStack(ctx)
 	if err != nil {
-		slog.Error("failed to get ATP feed", "err", err)
+		slog.Error("failed to get ATP market feed", "err", err)
 		os.Exit(1)
 	}
 
@@ -236,7 +236,7 @@ func main() {
 	filtered := core.FilterATPMarkets(markets)
 	slog.Info("ATP markets after filter", "filtered", len(filtered), "total", len(markets))
 
-	atpTraders := startATPTraders(ctx, gammaClient, clobClient, atpFeed, filtered)
+	atpTraders := startATPTraders(ctx, gammaClient, clobClient, marketFeed, filtered)
 
 	signalCh, forwardWg := forwardAllTraderSignals(ctx, atpTraders)
 	runSignalLogger(ctx, signalCh)

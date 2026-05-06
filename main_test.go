@@ -116,7 +116,7 @@ func TestSetupLoggingWarnsOnInvalidLogLevel(t *testing.T) {
 }
 
 type fakeFeedManager struct {
-	feed    *core.CategoryFeed
+	marketFeed *core.MarketFeed
 	feedErr error
 	started bool
 	stopped bool
@@ -124,29 +124,29 @@ type fakeFeedManager struct {
 
 func (f *fakeFeedManager) Start(context.Context) { f.started = true }
 func (f *fakeFeedManager) Stop()                 { f.stopped = true }
-func (f *fakeFeedManager) Feed(core.Category) (*core.CategoryFeed, error) {
+func (f *fakeFeedManager) GetMarketFeed(core.Category) (*core.MarketFeed, error) {
 	if f.feedErr != nil {
 		return nil, f.feedErr
 	}
-	return f.feed, nil
+	return f.marketFeed, nil
 }
 
 func TestStartATPStackSuccess(t *testing.T) {
-	origNewFeedManager := newFeedManager
-	t.Cleanup(func() { newFeedManager = origNewFeedManager })
+	origNewMarketFeedManager := newMarketFeedManager
+	t.Cleanup(func() { newMarketFeedManager = origNewMarketFeedManager })
 
-	wantFeed := &core.CategoryFeed{}
-	fm := &fakeFeedManager{feed: wantFeed}
-	newFeedManager = func([]core.Category) feedManagerRunner { return fm }
+	wantMarketFeed := &core.MarketFeed{}
+	fm := &fakeFeedManager{marketFeed: wantMarketFeed}
+	newMarketFeedManager = func([]core.Category) feedManagerRunner { return fm }
 
-	gotManager, gotFeed, err := startATPStack(context.Background())
+	gotManager, gotMarketFeed, err := startATPStack(context.Background())
 	if err != nil {
 		t.Fatalf("startATPStack() error = %v", err)
 	}
 	if gotManager != fm {
 		t.Fatalf("startATPStack() manager mismatch")
 	}
-	if gotFeed != wantFeed {
+	if gotMarketFeed != wantMarketFeed {
 		t.Fatalf("startATPStack() feed mismatch")
 	}
 	if !fm.started {
@@ -158,19 +158,19 @@ func TestStartATPStackSuccess(t *testing.T) {
 }
 
 func TestStartATPStackFeedErrorStopsManager(t *testing.T) {
-	origNewFeedManager := newFeedManager
-	t.Cleanup(func() { newFeedManager = origNewFeedManager })
+	origNewMarketFeedManager := newMarketFeedManager
+	t.Cleanup(func() { newMarketFeedManager = origNewMarketFeedManager })
 
 	wantErr := errors.New("feed unavailable")
 	fm := &fakeFeedManager{feedErr: wantErr}
-	newFeedManager = func([]core.Category) feedManagerRunner { return fm }
+	newMarketFeedManager = func([]core.Category) feedManagerRunner { return fm }
 
-	gotManager, gotFeed, err := startATPStack(context.Background())
+	gotManager, gotMarketFeed, err := startATPStack(context.Background())
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("startATPStack() error = %v, want %v", err, wantErr)
 	}
-	if gotManager != nil || gotFeed != nil {
-		t.Fatalf("startATPStack() = (%v, %v), want nil,nil on error", gotManager, gotFeed)
+	if gotManager != nil || gotMarketFeed != nil {
+		t.Fatalf("startATPStack() = (%v, %v), want nil,nil on error", gotManager, gotMarketFeed)
 	}
 	if !fm.started || !fm.stopped {
 		t.Fatalf("expected started and stopped to be true, got started=%v stopped=%v", fm.started, fm.stopped)
@@ -267,7 +267,7 @@ func TestStartATPTradersSkipsFailedStarts(t *testing.T) {
 	failTrader := &fakeTrader{startErr: errors.New("boom"), signalCh: make(chan core.TradeSignal)}
 	created := map[string]*fakeTrader{}
 
-	newATPTrader = func(_ *gamma.Client, _ *clob.Client, _ *core.CategoryFeed, market models.GammaMarket) traderRunner {
+	newATPTrader = func(_ *gamma.Client, _ *clob.Client, _ *core.MarketFeed, market models.GammaMarket) traderRunner {
 		if market.ConditionID == "bad" {
 			created[market.ConditionID] = failTrader
 			return failTrader
@@ -276,7 +276,7 @@ func TestStartATPTradersSkipsFailedStarts(t *testing.T) {
 		return okTrader
 	}
 
-	traders := startATPTraders(context.Background(), &gamma.Client{}, &clob.Client{}, &core.CategoryFeed{}, []models.GammaMarket{
+	traders := startATPTraders(context.Background(), &gamma.Client{}, &clob.Client{}, &core.MarketFeed{}, []models.GammaMarket{
 		{ConditionID: "ok"},
 		{ConditionID: "bad"},
 	})

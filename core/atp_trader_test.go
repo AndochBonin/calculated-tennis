@@ -20,13 +20,13 @@ func TestATPTraderStopsOnlyMatchingMarketOnResolvedEvent(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	feed := newCategoryFeed(CategoryATP)
+	marketFeed := newMarketFeed(CategoryATP)
 
 	marketA := testMarket(t, "atp-a", "0xabc123", []string{"a_yes", "a_no"})
 	marketB := testMarket(t, "atp-b", "0xdef456", []string{"b_yes", "b_no"})
 
-	traderA := NewATPTrader(nil, nil, feed, marketA)
-	traderB := NewATPTrader(nil, nil, feed, marketB)
+	traderA := NewATPTrader(nil, nil, marketFeed, marketA)
+	traderB := NewATPTrader(nil, nil, marketFeed, marketB)
 
 	if err := traderA.Start(ctx); err != nil {
 		t.Fatalf("start traderA: %v", err)
@@ -44,7 +44,7 @@ func TestATPTraderStopsOnlyMatchingMarketOnResolvedEvent(t *testing.T) {
 		Timestamp:      time.Now().UTC().Format(time.RFC3339),
 	}
 	for _, assetID := range resolved.AssetIDs {
-		feed.broadcastTo(assetID, resolved)
+		marketFeed.broadcastTo(assetID, resolved)
 	}
 
 	waitClosed(t, traderA.signals, "traderA signals close")
@@ -55,10 +55,10 @@ func TestATPTraderStopsOnlyMatchingMarketOnResolvedEvent(t *testing.T) {
 	default:
 	}
 
-	feed.mu.RLock()
-	remainingA := len(feed.subscribers["a_yes"]) + len(feed.subscribers["a_no"])
-	remainingB := len(feed.subscribers["b_yes"]) + len(feed.subscribers["b_no"])
-	feed.mu.RUnlock()
+	marketFeed.mu.RLock()
+	remainingA := len(marketFeed.subscribers["a_yes"]) + len(marketFeed.subscribers["a_no"])
+	remainingB := len(marketFeed.subscribers["b_yes"]) + len(marketFeed.subscribers["b_no"])
+	marketFeed.mu.RUnlock()
 
 	if remainingA != 0 {
 		t.Fatalf("expected traderA subscriptions removed, got %d listeners", remainingA)
@@ -164,7 +164,7 @@ func TestATPTraderStartValidationErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			trader := NewATPTrader(nil, nil, newCategoryFeed(CategoryATP), models.GammaMarket{
+			trader := NewATPTrader(nil, nil, newMarketFeed(CategoryATP), models.GammaMarket{
 				EnableOrderBook: true,
 				Slug:            "atp-start-error",
 				ConditionID:     "0xstart-error",
@@ -189,7 +189,7 @@ func TestATPTraderStartValidationErrors(t *testing.T) {
 func TestATPTraderStartAllowsOutcomeTokenLengthMismatch(t *testing.T) {
 	t.Parallel()
 
-	feed := newCategoryFeed(CategoryATP)
+	marketFeed := newMarketFeed(CategoryATP)
 	market := testMarketWithOutcomes(
 		t,
 		"atp-mismatch",
@@ -197,7 +197,7 @@ func TestATPTraderStartAllowsOutcomeTokenLengthMismatch(t *testing.T) {
 		[]string{"token-yes", "token-no", "token-draw"},
 		[]string{"YES"},
 	)
-	trader := NewATPTrader(nil, nil, feed, market)
+	trader := NewATPTrader(nil, nil, marketFeed, market)
 
 	if err := trader.Start(context.Background()); err != nil {
 		t.Fatalf("start trader with mismatched outcomes/tokens: %v", err)
@@ -207,11 +207,11 @@ func TestATPTraderStartAllowsOutcomeTokenLengthMismatch(t *testing.T) {
 		t.Fatalf("expected 3 subscriptions, got %d", len(trader.subs))
 	}
 
-	feed.mu.RLock()
-	yesListeners := feed.subscribers["token-yes"]
-	noListeners := feed.subscribers["token-no"]
-	drawListeners := feed.subscribers["token-draw"]
-	feed.mu.RUnlock()
+	marketFeed.mu.RLock()
+	yesListeners := marketFeed.subscribers["token-yes"]
+	noListeners := marketFeed.subscribers["token-no"]
+	drawListeners := marketFeed.subscribers["token-draw"]
+	marketFeed.mu.RUnlock()
 
 	if len(yesListeners) != 1 || len(noListeners) != 1 || len(drawListeners) != 1 {
 		t.Fatalf(
@@ -239,7 +239,7 @@ func TestATPTraderStartAllowsOutcomeTokenLengthMismatch(t *testing.T) {
 func TestATPTraderHandleBranchesAndSignals(t *testing.T) {
 	t.Parallel()
 
-	trader := NewATPTrader(nil, nil, newCategoryFeed(CategoryATP), models.GammaMarket{
+	trader := NewATPTrader(nil, nil, newMarketFeed(CategoryATP), models.GammaMarket{
 		Slug:        "atp-handle-test",
 		ConditionID: "0xabc123",
 		Question:    "handle test question",
@@ -311,7 +311,7 @@ func TestATPTraderListenExitsOnContextCancelStopAndClosedChannel(t *testing.T) {
 	t.Run("context canceled", func(t *testing.T) {
 		t.Parallel()
 
-		trader := NewATPTrader(nil, nil, newCategoryFeed(CategoryATP), models.GammaMarket{})
+		trader := NewATPTrader(nil, nil, newMarketFeed(CategoryATP), models.GammaMarket{})
 		ctx, cancel := context.WithCancel(context.Background())
 		recv := make(chan any)
 		done := make(chan struct{})
@@ -333,7 +333,7 @@ func TestATPTraderListenExitsOnContextCancelStopAndClosedChannel(t *testing.T) {
 	t.Run("stop channel closed", func(t *testing.T) {
 		t.Parallel()
 
-		trader := NewATPTrader(nil, nil, newCategoryFeed(CategoryATP), models.GammaMarket{})
+		trader := NewATPTrader(nil, nil, newMarketFeed(CategoryATP), models.GammaMarket{})
 		ctx := context.Background()
 		recv := make(chan any)
 		done := make(chan struct{})
@@ -355,7 +355,7 @@ func TestATPTraderListenExitsOnContextCancelStopAndClosedChannel(t *testing.T) {
 	t.Run("recv channel closed", func(t *testing.T) {
 		t.Parallel()
 
-		trader := NewATPTrader(nil, nil, newCategoryFeed(CategoryATP), models.GammaMarket{})
+		trader := NewATPTrader(nil, nil, newMarketFeed(CategoryATP), models.GammaMarket{})
 		ctx := context.Background()
 		recv := make(chan any)
 		done := make(chan struct{})
@@ -395,14 +395,14 @@ func TestATPTraderStopLogsUnsubscribeWarnPath(t *testing.T) {
 		t.Fatalf("dial websocket server: %v", err)
 	}
 
-	feed := newCategoryFeed(CategoryATP)
-	feed.conn = conn
+	marketFeed := newMarketFeed(CategoryATP)
+	marketFeed.conn = conn
 
 	subCh := make(chan any, 1)
 	tokenID := "warn-token"
-	feed.subscribers[tokenID] = []tokenMeta{{name: "warn name", ch: subCh}}
+	marketFeed.subscribers[tokenID] = []tokenMeta{{name: "warn name", ch: subCh}}
 
-	trader := NewATPTrader(nil, nil, feed, models.GammaMarket{})
+	trader := NewATPTrader(nil, nil, marketFeed, models.GammaMarket{})
 	trader.subs = []atpSubscription{{tokenID: tokenID, ch: subCh}}
 
 	// Close the active websocket so Unsubscribe's sendUnsubscribe write fails.

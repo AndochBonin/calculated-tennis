@@ -546,13 +546,13 @@ func TestCategoryFeedStopWithNilConn(t *testing.T) {
 	feed.Stop()
 }
 
-func TestFeedManagerLifecycleAndLookup(t *testing.T) {
-	manager := NewFeedManager([]Category{CategoryATP, CategoryNBA})
-	if len(manager.feeds) != 2 {
-		t.Fatalf("expected 2 feeds, got %d", len(manager.feeds))
+func TestMarketFeedManagerLifecycleAndLookup(t *testing.T) {
+	manager := NewMarketFeedManager([]Category{CategoryATP, CategoryNBA})
+	if len(manager.marketFeeds) != 2 {
+		t.Fatalf("expected 2 feeds, got %d", len(manager.marketFeeds))
 	}
 
-	feedATP, err := manager.Feed(CategoryATP)
+	feedATP, err := manager.GetMarketFeed(CategoryATP)
 	if err != nil {
 		t.Fatalf("expected ATP feed, got error: %v", err)
 	}
@@ -560,7 +560,7 @@ func TestFeedManagerLifecycleAndLookup(t *testing.T) {
 		t.Fatalf("unexpected ATP feed: %+v", feedATP)
 	}
 
-	_, err = manager.Feed(Category("UNKNOWN"))
+	_, err = manager.GetMarketFeed(Category("UNKNOWN"))
 	if err == nil {
 		t.Fatal("expected error for unknown category")
 	}

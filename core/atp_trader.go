@@ -21,7 +21,7 @@ type atpSubscription struct {
 type ATPTrader struct {
 	gammaClient *gamma.Client
 	clobClient  *clob.Client
-	feed        *CategoryFeed
+	marketFeed  *MarketFeed
 	market      models.GammaMarket
 	subs        []atpSubscription
 	signals     chan TradeSignal
@@ -30,11 +30,11 @@ type ATPTrader struct {
 	stopOnce    sync.Once
 }
 
-func NewATPTrader(gammaClient *gamma.Client, clobClient *clob.Client, categoryFeed *CategoryFeed, market models.GammaMarket) *ATPTrader {
+func NewATPTrader(gammaClient *gamma.Client, clobClient *clob.Client, marketFeed *MarketFeed, market models.GammaMarket) *ATPTrader {
 	return &ATPTrader{
 		gammaClient: gammaClient,
 		clobClient:  clobClient,
-		feed:        categoryFeed,
+		marketFeed:  marketFeed,
 		market:      market,
 		signals:     make(chan TradeSignal, 100),
 		stop:        make(chan struct{}),
@@ -91,7 +91,7 @@ func (t *ATPTrader) Start(ctx context.Context) error {
 		}
 
 		ch := make(chan any, 100)
-		t.feed.Subscribe(tokenID, name, ch)
+		t.marketFeed.Subscribe(tokenID, name, ch)
 
 		t.subs = append(t.subs, atpSubscription{tokenID: tokenID, ch: ch})
 
@@ -194,7 +194,7 @@ func (t *ATPTrader) handle(tokenID string, name string, event any) {
 func (t *ATPTrader) Stop() {
 	t.stopOnce.Do(func() {
 		for _, sub := range t.subs {
-			if err := t.feed.Unsubscribe(sub.tokenID, sub.ch); err != nil {
+			if err := t.marketFeed.Unsubscribe(sub.tokenID, sub.ch); err != nil {
 				slog.Warn("failed to unsubscribe",
 					append([]any{
 						"err", err,
