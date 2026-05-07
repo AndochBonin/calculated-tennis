@@ -84,7 +84,7 @@ func marketContextDescribesATPChallenger(m models.GammaMarket) bool {
 		if contextDescription == "" {
 			continue
 		}
-		if strings.Contains(strings.ToLower(contextDescription), "challenger") {
+		if strings.Contains(strings.ToLower(contextDescription), "atp challenger") {
 			return true
 		}
 	}
