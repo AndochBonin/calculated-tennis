@@ -41,7 +41,12 @@ type GammaMarket struct {
 }
 
 type GammaMarketEvent struct {
-	GameID int64 `json:"gameId"`
+	GameID        int64                    `json:"gameId"`
+	EventMetadata GammaMarketEventMetadata `json:"eventMetadata"`
+}
+
+type GammaMarketEventMetadata struct {
+	ContextDescription string `json:"context_description"`
 }
 
 // Market is the domain model used throughout the engine.

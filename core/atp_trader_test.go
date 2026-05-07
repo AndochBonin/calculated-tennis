@@ -81,9 +81,32 @@ func TestFilterATPMarkets(t *testing.T) {
 		ClobTokenIds:    `["yes-token","no-token"]`,
 		Outcomes:        `["YES","NO"]`,
 	}
+	validNoEvents := models.GammaMarket{
+		EnableOrderBook: true,
+		Slug:            "atp-valid-no-events",
+		ConditionID:     "valid-no-events",
+		ClobTokenIds:    `["yes-token","no-token"]`,
+		Outcomes:        `["YES","NO"]`,
+	}
+	validEmptyContext := models.GammaMarket{
+		EnableOrderBook: true,
+		Slug:            "atp-valid-empty-context",
+		ConditionID:     "valid-empty-context",
+		ClobTokenIds:    `["yes-token","no-token"]`,
+		Outcomes:        `["YES","NO"]`,
+		Events: []models.GammaMarketEvent{
+			{
+				EventMetadata: models.GammaMarketEventMetadata{
+					ContextDescription: "   ",
+				},
+			},
+		},
+	}
 
 	markets := []models.GammaMarket{
 		valid,
+		validNoEvents,
+		validEmptyContext,
 		{
 			EnableOrderBook: false,
 			Slug:            "atp-disabled-orderbook",
@@ -119,14 +142,55 @@ func TestFilterATPMarkets(t *testing.T) {
 			ClobTokenIds:    `["a","b"]`,
 			Outcomes:        `oops`,
 		},
+		{
+			EnableOrderBook: true,
+			Slug:            "atp-challenger-uppercase",
+			ConditionID:     "challenger-uppercase",
+			ClobTokenIds:    `["yes-token","no-token"]`,
+			Outcomes:        `["YES","NO"]`,
+			Events: []models.GammaMarketEvent{
+				{
+					EventMetadata: models.GammaMarketEventMetadata{
+						ContextDescription: "Wuxi ATP Challenger round of 16",
+					},
+				},
+			},
+		},
+		{
+			EnableOrderBook: true,
+			Slug:            "atp-challenger-lowercase",
+			ConditionID:     "challenger-lowercase",
+			ClobTokenIds:    `["yes-token","no-token"]`,
+			Outcomes:        `["YES","NO"]`,
+			Events: []models.GammaMarketEvent{
+				{
+					EventMetadata: models.GammaMarketEventMetadata{
+						ContextDescription: "wuxi challenger quarterfinal",
+					},
+				},
+			},
+		},
 	}
 
 	got := FilterATPMarkets(markets)
-	if len(got) != 1 {
-		t.Fatalf("expected exactly one valid market, got %d", len(got))
+	if len(got) != 3 {
+		t.Fatalf("expected exactly three valid markets, got %d", len(got))
 	}
-	if got[0].ConditionID != valid.ConditionID {
-		t.Fatalf("expected condition %q, got %q", valid.ConditionID, got[0].ConditionID)
+	gotByConditionID := make(map[string]models.GammaMarket, len(got))
+	for _, market := range got {
+		gotByConditionID[market.ConditionID] = market
+	}
+
+	for _, want := range []string{valid.ConditionID, validNoEvents.ConditionID, validEmptyContext.ConditionID} {
+		if _, ok := gotByConditionID[want]; !ok {
+			t.Fatalf("expected market %q to be included", want)
+		}
+	}
+
+	for _, unwanted := range []string{"challenger-uppercase", "challenger-lowercase"} {
+		if _, ok := gotByConditionID[unwanted]; ok {
+			t.Fatalf("expected market %q to be excluded", unwanted)
+		}
 	}
 }
 
@@ -137,6 +201,7 @@ func TestATPTraderStartValidationErrors(t *testing.T) {
 		name           string
 		clobTokenIDs   string
 		outcomes       string
+		events         []models.GammaMarketEvent
 		wantErrSubstrs []string
 	}{
 		{
@@ -157,6 +222,19 @@ func TestATPTraderStartValidationErrors(t *testing.T) {
 			outcomes:       `not-json`,
 			wantErrSubstrs: []string{"parse outcomes", "invalid character"},
 		},
+		{
+			name:         "challenger context rejected",
+			clobTokenIDs: `["yes-token","no-token"]`,
+			outcomes:     `["YES","NO"]`,
+			events: []models.GammaMarketEvent{
+				{
+					EventMetadata: models.GammaMarketEventMetadata{
+						ContextDescription: "Wuxi Challenger round of 16 ATP Challenger clash",
+					},
+				},
+			},
+			wantErrSubstrs: []string{"reject challenger market", "ATP Challenger"},
+		},
 	}
 
 	for _, tc := range cases {
@@ -171,6 +249,7 @@ func TestATPTraderStartValidationErrors(t *testing.T) {
 				Question:        "start error question",
 				ClobTokenIds:    tc.clobTokenIDs,
 				Outcomes:        tc.outcomes,
+				Events:          tc.events,
 			})
 
 			err := trader.Start(context.Background())

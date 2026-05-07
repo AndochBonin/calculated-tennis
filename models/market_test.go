@@ -90,7 +90,10 @@ func TestGammaMarketUnmarshalEventsGameID(t *testing.T) {
 		"endDate":"2026-05-06T10:00:00Z",
 		"events":[
 			{
-				"gameId":5428186
+				"gameId":5428186,
+				"eventMetadata":{
+					"context_description":"Wuxi Challenger round of 16 ATP Challenger clash"
+				}
 			}
 		]
 	}`
@@ -105,5 +108,8 @@ func TestGammaMarketUnmarshalEventsGameID(t *testing.T) {
 	}
 	if got.Events[0].GameID != 5428186 {
 		t.Fatalf("expected events[0].gameId=5428186, got %d", got.Events[0].GameID)
+	}
+	if got.Events[0].EventMetadata.ContextDescription != "Wuxi Challenger round of 16 ATP Challenger clash" {
+		t.Fatalf("expected events[0].eventMetadata.context_description to unmarshal, got %q", got.Events[0].EventMetadata.ContextDescription)
 	}
 }

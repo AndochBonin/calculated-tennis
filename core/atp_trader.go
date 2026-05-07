@@ -70,9 +70,25 @@ func FilterATPMarkets(markets []models.GammaMarket) []models.GammaMarket {
 		if err := json.Unmarshal([]byte(m.Outcomes), &outcomeNames); err != nil {
 			continue
 		}
+		if marketContextDescribesATPChallenger(m) {
+			continue
+		}
 		out = append(out, m)
 	}
 	return out
+}
+
+func marketContextDescribesATPChallenger(m models.GammaMarket) bool {
+	for _, event := range m.Events {
+		contextDescription := strings.TrimSpace(event.EventMetadata.ContextDescription)
+		if contextDescription == "" {
+			continue
+		}
+		if strings.Contains(strings.ToLower(contextDescription), "challenger") {
+			return true
+		}
+	}
+	return false
 }
 
 func sportsGameIDFromMarket(market models.GammaMarket) int64 {
@@ -88,6 +104,10 @@ func sportsGameIDFromMarket(market models.GammaMarket) int64 {
 
 func (t *ATPTrader) Start(ctx context.Context) error {
 	market := t.market
+
+	if marketContextDescribesATPChallenger(market) {
+		return fmt.Errorf("reject challenger market %s (%s): context_description indicates ATP Challenger", market.ConditionID, market.Slug)
+	}
 
 	var tokenIDs []string
 	if err := json.Unmarshal([]byte(market.ClobTokenIds), &tokenIDs); err != nil {
