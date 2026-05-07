@@ -267,7 +267,7 @@ func TestStartATPTradersSkipsFailedStarts(t *testing.T) {
 	failTrader := &fakeTrader{startErr: errors.New("boom"), signalCh: make(chan core.TradeSignal)}
 	created := map[string]*fakeTrader{}
 
-	newATPTrader = func(_ *gamma.Client, _ *clob.Client, _ *core.MarketFeed, market models.GammaMarket) traderRunner {
+	newATPTrader = func(_ *gamma.Client, _ *clob.Client, _ *core.MarketFeed, _ *core.SportsFeed, market models.GammaMarket) traderRunner {
 		if market.ConditionID == "bad" {
 			created[market.ConditionID] = failTrader
 			return failTrader
@@ -276,7 +276,7 @@ func TestStartATPTradersSkipsFailedStarts(t *testing.T) {
 		return okTrader
 	}
 
-	traders := startATPTraders(context.Background(), &gamma.Client{}, &clob.Client{}, &core.MarketFeed{}, []models.GammaMarket{
+	traders := startATPTraders(context.Background(), &gamma.Client{}, &clob.Client{}, &core.MarketFeed{}, nil, []models.GammaMarket{
 		{ConditionID: "ok"},
 		{ConditionID: "bad"},
 	})
@@ -452,7 +452,7 @@ func TestShutdownStopsAndCancels(t *testing.T) {
 	wg.Add(1)
 	done := make(chan struct{})
 	go func() {
-		shutdown([]traderRunner{t1, t2}, &wg, cancel, fm)
+		shutdown([]traderRunner{t1, t2}, &wg, cancel, fm, nil)
 		close(done)
 	}()
 

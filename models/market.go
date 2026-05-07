@@ -9,34 +9,39 @@ import (
 // GammaMarket is the raw API response from Gamma /markets.
 // Used only for deserialization — map to Market for domain use.
 type GammaMarket struct {
-	ConditionID           string          `json:"conditionId"`
-	Slug                  string          `json:"slug"`
-	Question              string          `json:"question"`
-	Category              string          `json:"category"`
-	EndDate               time.Time       `json:"endDate"`
-	Active                bool            `json:"active"`
-	Closed                bool            `json:"closed"`
-	Archived              bool            `json:"archived"`
-	AcceptingOrders       bool            `json:"acceptingOrders"`
-	EnableOrderBook       bool            `json:"enableOrderBook"`
-	ClobTokenIds          string          `json:"clobTokenIds"`
-	OutcomePrices         string          `json:"outcomePrices"`
-	Outcomes              string          `json:"outcomes"`
-	LiquidityNum          decimal.Decimal `json:"liquidityNum"`
-	VolumeNum             decimal.Decimal `json:"volumeNum"`
-	LastTradePrice        decimal.Decimal `json:"lastTradePrice"`
-	BestBid               decimal.Decimal `json:"bestBid"`
-	BestAsk               decimal.Decimal `json:"bestAsk"`
-	OrderMinSize          int             `json:"orderMinSize"`
-	OrderPriceMinTickSize decimal.Decimal `json:"orderPriceMinTickSize"`
-	MakerBaseFee          int             `json:"makerBaseFee"`
-	TakerBaseFee          int             `json:"takerBaseFee"`
-	GameStartTime         string          `json:"gameStartTime"`
+	ConditionID           string             `json:"conditionId"`
+	Slug                  string             `json:"slug"`
+	Question              string             `json:"question"`
+	Category              string             `json:"category"`
+	EndDate               time.Time          `json:"endDate"`
+	Active                bool               `json:"active"`
+	Closed                bool               `json:"closed"`
+	Archived              bool               `json:"archived"`
+	AcceptingOrders       bool               `json:"acceptingOrders"`
+	EnableOrderBook       bool               `json:"enableOrderBook"`
+	ClobTokenIds          string             `json:"clobTokenIds"`
+	OutcomePrices         string             `json:"outcomePrices"`
+	Outcomes              string             `json:"outcomes"`
+	LiquidityNum          decimal.Decimal    `json:"liquidityNum"`
+	VolumeNum             decimal.Decimal    `json:"volumeNum"`
+	LastTradePrice        decimal.Decimal    `json:"lastTradePrice"`
+	BestBid               decimal.Decimal    `json:"bestBid"`
+	BestAsk               decimal.Decimal    `json:"bestAsk"`
+	OrderMinSize          int                `json:"orderMinSize"`
+	OrderPriceMinTickSize decimal.Decimal    `json:"orderPriceMinTickSize"`
+	MakerBaseFee          int                `json:"makerBaseFee"`
+	TakerBaseFee          int                `json:"takerBaseFee"`
+	GameStartTime         string             `json:"gameStartTime"`
+	Events                []GammaMarketEvent `json:"events"`
 	Tags                  []struct {
 		ID    string `json:"id"`
 		Label string `json:"label"`
 		Slug  string `json:"slug"`
 	} `json:"tags"`
+}
+
+type GammaMarketEvent struct {
+	GameID int64 `json:"gameId"`
 }
 
 // Market is the domain model used throughout the engine.

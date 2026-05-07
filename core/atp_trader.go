@@ -13,28 +13,42 @@ import (
 	"github.com/AndochBonin/polymarket/models"
 )
 
-type atpSubscription struct {
+type atpMarketSubscription struct {
 	tokenID string
 	ch      chan any
+}
+
+type atpSportsSubscription struct {
+	gameID int64
+	ch     chan any
 }
 
 type ATPTrader struct {
 	gammaClient *gamma.Client
 	clobClient  *clob.Client
 	marketFeed  *MarketFeed
+	sportsFeed  *SportsFeed
 	market      models.GammaMarket
-	subs        []atpSubscription
+	marketSubs  []atpMarketSubscription
+	sportsSub   *atpSportsSubscription
 	signals     chan TradeSignal
 	stop        chan struct{}
 	listenersWg sync.WaitGroup
 	stopOnce    sync.Once
 }
 
-func NewATPTrader(gammaClient *gamma.Client, clobClient *clob.Client, marketFeed *MarketFeed, market models.GammaMarket) *ATPTrader {
+func NewATPTrader(
+	gammaClient *gamma.Client,
+	clobClient *clob.Client,
+	marketFeed *MarketFeed,
+	sportsFeed *SportsFeed,
+	market models.GammaMarket,
+) *ATPTrader {
 	return &ATPTrader{
 		gammaClient: gammaClient,
 		clobClient:  clobClient,
 		marketFeed:  marketFeed,
+		sportsFeed:  sportsFeed,
 		market:      market,
 		signals:     make(chan TradeSignal, 100),
 		stop:        make(chan struct{}),
@@ -59,6 +73,17 @@ func FilterATPMarkets(markets []models.GammaMarket) []models.GammaMarket {
 		out = append(out, m)
 	}
 	return out
+}
+
+func sportsGameIDFromMarket(market models.GammaMarket) int64 {
+	if len(market.Events) == 0 {
+		return 0
+	}
+	gameID := market.Events[0].GameID
+	if gameID == 0 {
+		return 0
+	}
+	return gameID
 }
 
 func (t *ATPTrader) Start(ctx context.Context) error {
@@ -93,19 +118,35 @@ func (t *ATPTrader) Start(ctx context.Context) error {
 		ch := make(chan any, 100)
 		t.marketFeed.Subscribe(tokenID, name, ch)
 
-		t.subs = append(t.subs, atpSubscription{tokenID: tokenID, ch: ch})
+		t.marketSubs = append(t.marketSubs, atpMarketSubscription{tokenID: tokenID, ch: ch})
 
 		t.listenersWg.Add(1)
 		go func(tokenID, name string, recv <-chan any) {
 			defer t.listenersWg.Done()
-			t.listen(ctx, tokenID, name, recv)
+			t.listenMarket(ctx, tokenID, name, recv)
 		}(tokenID, name, ch)
+	}
+
+	sportsGameID := sportsGameIDFromMarket(market)
+	if t.sportsFeed != nil && sportsGameID != 0 {
+		sportsCh := make(chan any, 100)
+		t.sportsFeed.Subscribe(sportsGameID, market.Question, sportsCh)
+		t.sportsSub = &atpSportsSubscription{
+			gameID: sportsGameID,
+			ch:     sportsCh,
+		}
+
+		t.listenersWg.Add(1)
+		go func(gameID int64, name string, recv <-chan any) {
+			defer t.listenersWg.Done()
+			t.listenSports(ctx, gameID, name, recv)
+		}(sportsGameID, market.Question, sportsCh)
 	}
 
 	return nil
 }
 
-func (t *ATPTrader) listen(ctx context.Context, tokenID string, name string, ch <-chan any) {
+func (t *ATPTrader) listenMarket(ctx context.Context, tokenID string, name string, ch <-chan any) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -117,12 +158,12 @@ func (t *ATPTrader) listen(ctx context.Context, tokenID string, name string, ch 
 				return
 			}
 
-			t.handle(tokenID, name, event)
+			t.handleMarket(tokenID, name, event)
 		}
 	}
 }
 
-func (t *ATPTrader) handle(tokenID string, name string, event any) {
+func (t *ATPTrader) handleMarket(tokenID string, name string, event any) {
 	switch e := event.(type) {
 	case models.PriceEvent:
 		for _, change := range e.PriceChanges {
@@ -138,18 +179,6 @@ func (t *ATPTrader) handle(tokenID string, name string, event any) {
 				}, AppendVerboseIDs("token_id", tokenID)...)...,
 			)
 		}
-	case models.SportEvent:
-		slog.Info("sport event",
-			append([]any{
-				"name", name,
-				"slug", e.Slug,
-				"score", e.Score,
-				"period", e.Period,
-				"elapsed", e.Elapsed,
-				"live", e.Live,
-				"ended", e.Ended,
-			}, AppendVerboseIDs("token_id", tokenID)...)...,
-		)
 	case models.BookEvent:
 		slog.Info("book event",
 			append([]any{
@@ -191,9 +220,52 @@ func (t *ATPTrader) handle(tokenID string, name string, event any) {
 	}
 }
 
+func (t *ATPTrader) listenSports(ctx context.Context, gameID int64, name string, ch <-chan any) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.stop:
+			return
+		case event, ok := <-ch:
+			if !ok {
+				return
+			}
+			t.handleSports(gameID, name, event)
+		}
+	}
+}
+
+func (t *ATPTrader) handleSports(gameID int64, name string, event any) {
+	switch e := event.(type) {
+	case models.SportsEvent:
+		slog.Info("sport event",
+			[]any{
+				"name", name,
+				"game_id", e.GameID,
+				"league", e.LeagueAbbreviation,
+				"home", e.HomeTeam,
+				"away", e.AwayTeam,
+				"status", e.Status,
+				"score", e.Score,
+				"period", e.Period,
+				"live", e.Live,
+				"ended", e.Ended,
+				"event_state_type", e.EventState.Type,
+				"tournament", e.EventState.TournamentName,
+				"tennis_round", e.EventState.TennisRound,
+			}...,
+		)
+	case error:
+		slog.Error("sports error event", "name", name, "err", e, "game_id", gameID)
+	default:
+		slog.Error("unknown sports event type", "name", name, "event_type", fmt.Sprintf("%T", e), "game_id", gameID)
+	}
+}
+
 func (t *ATPTrader) Stop() {
 	t.stopOnce.Do(func() {
-		for _, sub := range t.subs {
+		for _, sub := range t.marketSubs {
 			if err := t.marketFeed.Unsubscribe(sub.tokenID, sub.ch); err != nil {
 				slog.Warn("failed to unsubscribe",
 					append([]any{
@@ -205,6 +277,9 @@ func (t *ATPTrader) Stop() {
 					AppendVerboseIDs("token_id", sub.tokenID)...,
 				)
 			}
+		}
+		if t.sportsSub != nil && t.sportsFeed != nil {
+			t.sportsFeed.Unsubscribe(t.sportsSub.gameID, t.sportsSub.ch)
 		}
 		close(t.stop)
 		t.listenersWg.Wait()

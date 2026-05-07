@@ -59,30 +59,6 @@ func TestCategoryFeedDispatchPriceChangeBroadcastsPerAsset(t *testing.T) {
 	}
 }
 
-func TestCategoryFeedDispatchSportEventDoesNotBroadcast(t *testing.T) {
-	feed := newCategoryFeed(CategoryATP)
-	ch := make(chan any, 1)
-	feed.subscribers["asset-a"] = []tokenMeta{{name: "A", ch: ch}}
-
-	feed.dispatch([]byte(`{
-		"event_type":"sport_event",
-		"asset_id":"asset-a",
-		"slug":"atp-match",
-		"live":true,
-		"ended":false,
-		"score":"1-0",
-		"period":"set1",
-		"elapsed":"10",
-		"last_update":"now"
-	}`))
-
-	select {
-	case got := <-ch:
-		t.Fatalf("did not expect sport_event to be broadcast, got %T", got)
-	default:
-	}
-}
-
 func TestCategoryFeedDispatchBookBroadcastsByAsset(t *testing.T) {
 	feed := newCategoryFeed(CategoryATP)
 	ch := make(chan any, 1)
@@ -154,7 +130,6 @@ func TestCategoryFeedDispatchInvalidOrUnknownEvents(t *testing.T) {
 	feed.dispatch([]byte(`{not-json`))
 	feed.dispatch([]byte(`{"event_type":"unknown","asset_id":"asset-a"}`))
 	feed.dispatch([]byte(`{"event_type":"price_change","market":"m","price_changes":"bad-type"}`))
-	feed.dispatch([]byte(`{"event_type":"sport_event","slug":1}`))
 	feed.dispatch([]byte(`{"event_type":"book","asset_id":"asset-a","bids":"bad-type"}`))
 	feed.dispatch([]byte(`{"event_type":"market_resolved","assets_ids":"bad-type"}`))
 
@@ -1010,7 +985,6 @@ func TestCategoryFeedReadLoopDispatchInnerUnmarshalErrors(t *testing.T) {
 
 	messages := [][]byte{
 		[]byte(`{"event_type":"price_change","market":"m","price_changes":"bad-type"}`),
-		[]byte(`{"event_type":"sport_event","slug":1}`),
 		[]byte(`{"event_type":"book","asset_id":"asset-1","bids":"bad-type"}`),
 		[]byte(`{"event_type":"market_resolved","assets_ids":"bad-type"}`),
 	}

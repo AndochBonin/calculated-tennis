@@ -39,8 +39,9 @@ var (
 	}
 	newGammaClient = gamma.NewClient
 	newClobClient  = clob.NewClient
-	newATPTrader   = func(gammaClient *gamma.Client, clobClient *clob.Client, marketFeed *core.MarketFeed, market models.GammaMarket) traderRunner {
-		return core.NewATPTrader(gammaClient, clobClient, marketFeed, market)
+	newSportsFeed  = core.NewSportsFeed
+	newATPTrader   = func(gammaClient *gamma.Client, clobClient *clob.Client, marketFeed *core.MarketFeed, sportsFeed *core.SportsFeed, market models.GammaMarket) traderRunner {
+		return core.NewATPTrader(gammaClient, clobClient, marketFeed, sportsFeed, market)
 	}
 )
 
@@ -119,11 +120,12 @@ func startATPTraders(
 	gammaClient *gamma.Client,
 	clobClient *clob.Client,
 	marketFeed *core.MarketFeed,
+	sportsFeed *core.SportsFeed,
 	markets []models.GammaMarket,
 ) []traderRunner {
 	var atpTraders []traderRunner
 	for _, m := range markets {
-		tr := newATPTrader(gammaClient, clobClient, marketFeed, m)
+		tr := newATPTrader(gammaClient, clobClient, marketFeed, sportsFeed, m)
 		if err := tr.Start(ctx); err != nil {
 			slog.Warn("skip market",
 				append([]any{"err", err}, core.AppendVerboseIDs("condition_id", m.ConditionID)...)...)
@@ -199,6 +201,7 @@ func shutdown(
 	forwardWg *sync.WaitGroup,
 	cancel context.CancelFunc,
 	feedManager feedManagerRunner,
+	sportsFeed *core.SportsFeed,
 ) {
 	for _, tr := range traders {
 		tr.Stop()
@@ -207,6 +210,9 @@ func shutdown(
 	cancel()
 	if feedManager != nil {
 		feedManager.Stop()
+	}
+	if sportsFeed != nil {
+		sportsFeed.Stop()
 	}
 	slog.Info("shutting down")
 }
@@ -224,23 +230,26 @@ func main() {
 		slog.Error("failed to get ATP market feed", "err", err)
 		os.Exit(1)
 	}
+	sportsFeed := newSportsFeed()
+	sportsFeed.Start(ctx)
 
 	gammaClient, clobClient := newClients()
 
 	markets, err := fetchATPMarkets(ctx, gammaClient)
 	if err != nil {
 		feedManager.Stop()
+		sportsFeed.Stop()
 		slog.Error("failed to fetch ATP markets", "err", err)
 		os.Exit(1)
 	}
 	filtered := core.FilterATPMarkets(markets)
 	slog.Info("ATP markets after filter", "filtered", len(filtered), "total", len(markets))
 
-	atpTraders := startATPTraders(ctx, gammaClient, clobClient, marketFeed, filtered)
+	atpTraders := startATPTraders(ctx, gammaClient, clobClient, marketFeed, sportsFeed, filtered)
 
 	signalCh, forwardWg := forwardAllTraderSignals(ctx, atpTraders)
 	runSignalLogger(ctx, signalCh)
 
 	waitInterrupt()
-	shutdown(atpTraders, forwardWg, cancel, feedManager)
+	shutdown(atpTraders, forwardWg, cancel, feedManager, sportsFeed)
 }

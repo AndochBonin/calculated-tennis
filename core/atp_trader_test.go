@@ -25,8 +25,8 @@ func TestATPTraderStopsOnlyMatchingMarketOnResolvedEvent(t *testing.T) {
 	marketA := testMarket(t, "atp-a", "0xabc123", []string{"a_yes", "a_no"})
 	marketB := testMarket(t, "atp-b", "0xdef456", []string{"b_yes", "b_no"})
 
-	traderA := NewATPTrader(nil, nil, marketFeed, marketA)
-	traderB := NewATPTrader(nil, nil, marketFeed, marketB)
+	traderA := NewATPTrader(nil, nil, marketFeed, nil, marketA)
+	traderB := NewATPTrader(nil, nil, marketFeed, nil, marketB)
 
 	if err := traderA.Start(ctx); err != nil {
 		t.Fatalf("start traderA: %v", err)
@@ -164,7 +164,7 @@ func TestATPTraderStartValidationErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			trader := NewATPTrader(nil, nil, newMarketFeed(CategoryATP), models.GammaMarket{
+			trader := NewATPTrader(nil, nil, newMarketFeed(CategoryATP), nil, models.GammaMarket{
 				EnableOrderBook: true,
 				Slug:            "atp-start-error",
 				ConditionID:     "0xstart-error",
@@ -197,14 +197,14 @@ func TestATPTraderStartAllowsOutcomeTokenLengthMismatch(t *testing.T) {
 		[]string{"token-yes", "token-no", "token-draw"},
 		[]string{"YES"},
 	)
-	trader := NewATPTrader(nil, nil, marketFeed, market)
+	trader := NewATPTrader(nil, nil, marketFeed, nil, market)
 
 	if err := trader.Start(context.Background()); err != nil {
 		t.Fatalf("start trader with mismatched outcomes/tokens: %v", err)
 	}
 
-	if len(trader.subs) != 3 {
-		t.Fatalf("expected 3 subscriptions, got %d", len(trader.subs))
+	if len(trader.marketSubs) != 3 {
+		t.Fatalf("expected 3 subscriptions, got %d", len(trader.marketSubs))
 	}
 
 	marketFeed.mu.RLock()
@@ -239,7 +239,7 @@ func TestATPTraderStartAllowsOutcomeTokenLengthMismatch(t *testing.T) {
 func TestATPTraderHandleBranchesAndSignals(t *testing.T) {
 	t.Parallel()
 
-	trader := NewATPTrader(nil, nil, newMarketFeed(CategoryATP), models.GammaMarket{
+	trader := NewATPTrader(nil, nil, newMarketFeed(CategoryATP), nil, models.GammaMarket{
 		Slug:        "atp-handle-test",
 		ConditionID: "0xabc123",
 		Question:    "handle test question",
@@ -250,7 +250,7 @@ func TestATPTraderHandleBranchesAndSignals(t *testing.T) {
 	}
 
 	// Price event with non-matching token should continue without panic.
-	trader.handle("target-token", "target name", models.PriceEvent{
+	trader.handleMarket("target-token", "target name", models.PriceEvent{
 		EventType: "price_change",
 		Market:    "0xabc123",
 		PriceChanges: []models.PriceChange{
@@ -259,7 +259,7 @@ func TestATPTraderHandleBranchesAndSignals(t *testing.T) {
 	})
 
 	// Price event with matching token should execute matching branch.
-	trader.handle("target-token", "target name", models.PriceEvent{
+	trader.handleMarket("target-token", "target name", models.PriceEvent{
 		EventType: "price_change",
 		Market:    "0xabc123",
 		PriceChanges: []models.PriceChange{
@@ -267,21 +267,29 @@ func TestATPTraderHandleBranchesAndSignals(t *testing.T) {
 		},
 	})
 
-	trader.handle("target-token", "target name", models.SportEvent{
-		Slug:    "atp-handle-test",
-		Score:   "1-0",
-		Period:  "2",
-		Elapsed: "45:00",
-		Live:    true,
-		Ended:   false,
+	trader.handleSports(5428186, "target name", models.SportsEvent{
+		GameID:             5428186,
+		LeagueAbbreviation: "atp",
+		HomeTeam:           "Home",
+		AwayTeam:           "Away",
+		Status:             "inprogress",
+		Score:              "1-0",
+		Period:             "set2",
+		Live:               true,
+		Ended:              false,
+		EventState: models.SportsEventState{
+			Type:           "tennis",
+			TournamentName: "Test Open",
+			TennisRound:    "QF",
+		},
 	})
-	trader.handle("target-token", "target name", models.BookEvent{
+	trader.handleMarket("target-token", "target name", models.BookEvent{
 		EventType: "book",
 		Market:    "0xabc123",
 	})
 
 	// Non-matching market resolved event should not stop trader.
-	trader.handle("target-token", "target name", models.MarketResolvedEvent{
+	trader.handleMarket("target-token", "target name", models.MarketResolvedEvent{
 		EventType: "market_resolved",
 		Market:    "0xdef456",
 	})
@@ -291,11 +299,11 @@ func TestATPTraderHandleBranchesAndSignals(t *testing.T) {
 	default:
 	}
 
-	trader.handle("target-token", "target name", errors.New("test error event"))
-	trader.handle("target-token", "target name", struct{ Event string }{Event: "unknown"})
+	trader.handleMarket("target-token", "target name", errors.New("test error event"))
+	trader.handleMarket("target-token", "target name", struct{ Event string }{Event: "unknown"})
 
 	// Matching market resolved event should trigger Stop.
-	trader.handle("target-token", "target name", models.MarketResolvedEvent{
+	trader.handleMarket("target-token", "target name", models.MarketResolvedEvent{
 		EventType:      "market_resolved",
 		Market:         "0xABC123",
 		WinningAssetID: "target-token",
@@ -311,14 +319,14 @@ func TestATPTraderListenExitsOnContextCancelStopAndClosedChannel(t *testing.T) {
 	t.Run("context canceled", func(t *testing.T) {
 		t.Parallel()
 
-		trader := NewATPTrader(nil, nil, newMarketFeed(CategoryATP), models.GammaMarket{})
+		trader := NewATPTrader(nil, nil, newMarketFeed(CategoryATP), nil, models.GammaMarket{})
 		ctx, cancel := context.WithCancel(context.Background())
 		recv := make(chan any)
 		done := make(chan struct{})
 
 		go func() {
 			defer close(done)
-			trader.listen(ctx, "token", "name", recv)
+			trader.listenMarket(ctx, "token", "name", recv)
 		}()
 
 		cancel()
@@ -333,14 +341,14 @@ func TestATPTraderListenExitsOnContextCancelStopAndClosedChannel(t *testing.T) {
 	t.Run("stop channel closed", func(t *testing.T) {
 		t.Parallel()
 
-		trader := NewATPTrader(nil, nil, newMarketFeed(CategoryATP), models.GammaMarket{})
+		trader := NewATPTrader(nil, nil, newMarketFeed(CategoryATP), nil, models.GammaMarket{})
 		ctx := context.Background()
 		recv := make(chan any)
 		done := make(chan struct{})
 
 		go func() {
 			defer close(done)
-			trader.listen(ctx, "token", "name", recv)
+			trader.listenMarket(ctx, "token", "name", recv)
 		}()
 
 		close(trader.stop)
@@ -355,14 +363,14 @@ func TestATPTraderListenExitsOnContextCancelStopAndClosedChannel(t *testing.T) {
 	t.Run("recv channel closed", func(t *testing.T) {
 		t.Parallel()
 
-		trader := NewATPTrader(nil, nil, newMarketFeed(CategoryATP), models.GammaMarket{})
+		trader := NewATPTrader(nil, nil, newMarketFeed(CategoryATP), nil, models.GammaMarket{})
 		ctx := context.Background()
 		recv := make(chan any)
 		done := make(chan struct{})
 
 		go func() {
 			defer close(done)
-			trader.listen(ctx, "token", "name", recv)
+			trader.listenMarket(ctx, "token", "name", recv)
 		}()
 
 		close(recv)
@@ -402,8 +410,8 @@ func TestATPTraderStopLogsUnsubscribeWarnPath(t *testing.T) {
 	tokenID := "warn-token"
 	marketFeed.subscribers[tokenID] = []tokenMeta{{name: "warn name", ch: subCh}}
 
-	trader := NewATPTrader(nil, nil, marketFeed, models.GammaMarket{})
-	trader.subs = []atpSubscription{{tokenID: tokenID, ch: subCh}}
+	trader := NewATPTrader(nil, nil, marketFeed, nil, models.GammaMarket{})
+	trader.marketSubs = []atpMarketSubscription{{tokenID: tokenID, ch: subCh}}
 
 	// Close the active websocket so Unsubscribe's sendUnsubscribe write fails.
 	if err := conn.Close(); err != nil {
@@ -412,6 +420,205 @@ func TestATPTraderStopLogsUnsubscribeWarnPath(t *testing.T) {
 
 	trader.Stop()
 	waitClosed(t, trader.signals, "trader signals close after stop")
+}
+
+func TestSportsGameIDFromMarket(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		market models.GammaMarket
+		want   int64
+	}{
+		{
+			name: "returns first event game id",
+			market: models.GammaMarket{
+				Events: []models.GammaMarketEvent{
+					{GameID: 5428186},
+					{GameID: 9999999},
+				},
+			},
+			want: 5428186,
+		},
+		{
+			name: "returns zero when events empty",
+			market: models.GammaMarket{
+				Events: nil,
+			},
+			want: 0,
+		},
+		{
+			name: "returns zero when first event game id missing",
+			market: models.GammaMarket{
+				Events: []models.GammaMarketEvent{
+					{GameID: 0},
+				},
+			},
+			want: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := sportsGameIDFromMarket(tt.market); got != tt.want {
+				t.Fatalf("sportsGameIDFromMarket()=%d, want=%d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestATPTraderStartAndStopSportsPath(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	marketFeed := newMarketFeed(CategoryATP)
+	sportsFeed := NewSportsFeed()
+
+	const gameID int64 = 5428186
+	market := testMarket(t, "atp-sports", "0xsports", []string{"yes-token", "no-token"})
+	market.Events = []models.GammaMarketEvent{{GameID: gameID}}
+
+	trader := NewATPTrader(nil, nil, marketFeed, sportsFeed, market)
+	if err := trader.Start(ctx); err != nil {
+		t.Fatalf("start trader: %v", err)
+	}
+
+	if trader.sportsSub == nil {
+		t.Fatal("expected sportsSub to be set after Start with sports-eligible market")
+	}
+	if trader.sportsSub.gameID != gameID {
+		t.Fatalf("expected sportsSub gameID %d, got %d", gameID, trader.sportsSub.gameID)
+	}
+
+	sportsFeed.mu.RLock()
+	gameSubs := len(sportsFeed.subscribers[gameID])
+	sportsFeed.mu.RUnlock()
+	if gameSubs != 1 {
+		t.Fatalf("expected 1 sports subscriber for gameID %d, got %d", gameID, gameSubs)
+	}
+
+	trader.Stop()
+	waitClosed(t, trader.signals, "trader signals close after sports stop")
+
+	sportsFeed.mu.RLock()
+	remaining := len(sportsFeed.subscribers[gameID])
+	sportsFeed.mu.RUnlock()
+	if remaining != 0 {
+		t.Fatalf("expected sports subscriber removed after Stop, got %d", remaining)
+	}
+}
+
+func TestATPTraderListenSportsExitsOnContextCancelStopAndClosedChannel(t *testing.T) {
+	t.Parallel()
+
+	t.Run("context canceled", func(t *testing.T) {
+		t.Parallel()
+
+		trader := NewATPTrader(nil, nil, newMarketFeed(CategoryATP), nil, models.GammaMarket{})
+		ctx, cancel := context.WithCancel(context.Background())
+		recv := make(chan any)
+		done := make(chan struct{})
+
+		go func() {
+			defer close(done)
+			trader.listenSports(ctx, 5428186, "name", recv)
+		}()
+
+		cancel()
+
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("listenSports did not exit after context cancel")
+		}
+	})
+
+	t.Run("stop channel closed", func(t *testing.T) {
+		t.Parallel()
+
+		trader := NewATPTrader(nil, nil, newMarketFeed(CategoryATP), nil, models.GammaMarket{})
+		ctx := context.Background()
+		recv := make(chan any)
+		done := make(chan struct{})
+
+		go func() {
+			defer close(done)
+			trader.listenSports(ctx, 5428186, "name", recv)
+		}()
+
+		close(trader.stop)
+
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("listenSports did not exit after stop channel close")
+		}
+	})
+
+	t.Run("recv channel closed", func(t *testing.T) {
+		t.Parallel()
+
+		trader := NewATPTrader(nil, nil, newMarketFeed(CategoryATP), nil, models.GammaMarket{})
+		ctx := context.Background()
+		recv := make(chan any)
+		done := make(chan struct{})
+
+		go func() {
+			defer close(done)
+			trader.listenSports(ctx, 5428186, "name", recv)
+		}()
+
+		close(recv)
+
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("listenSports did not exit after recv channel close")
+		}
+	})
+
+	t.Run("processes received event before exit", func(t *testing.T) {
+		t.Parallel()
+
+		trader := NewATPTrader(nil, nil, newMarketFeed(CategoryATP), nil, models.GammaMarket{})
+		ctx := context.Background()
+		recv := make(chan any, 1)
+		done := make(chan struct{})
+
+		go func() {
+			defer close(done)
+			trader.listenSports(ctx, 5428186, "name", recv)
+		}()
+
+		recv <- models.SportsEvent{
+			GameID:             5428186,
+			LeagueAbbreviation: "atp",
+		}
+		close(recv)
+
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("listenSports did not exit after processing event and recv close")
+		}
+	})
+}
+
+func TestATPTraderHandleSportsErrorAndDefault(t *testing.T) {
+	t.Parallel()
+
+	trader := NewATPTrader(nil, nil, newMarketFeed(CategoryATP), nil, models.GammaMarket{
+		Slug:        "atp-handle-sports",
+		ConditionID: "0xsports-handle",
+		Question:    "sports handle question",
+	})
+
+	trader.handleSports(5428186, "sports name", errors.New("sports stream failure"))
+	trader.handleSports(5428186, "sports name", struct{ Event string }{Event: "unknown sports event"})
 }
 
 func waitClosed[T any](t *testing.T, ch <-chan T, name string) {

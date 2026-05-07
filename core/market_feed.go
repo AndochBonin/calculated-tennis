@@ -278,11 +278,6 @@ func (marketFeed *MarketFeed) dispatch(msg []byte) {
 		for _, change := range e.PriceChanges {
 			marketFeed.broadcastTo(change.AssetID, e)
 		}
-	case "sport_event":
-		var e models.SportEvent
-		if err := json.Unmarshal(msg, &e); err != nil {
-			return
-		}
 	case "book":
 		var e models.BookEvent
 		if err := json.Unmarshal(msg, &e); err != nil {
