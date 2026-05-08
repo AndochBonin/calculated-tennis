@@ -176,7 +176,7 @@ func (marketFeed *MarketFeed) connectLoop() {
 					if metas := marketFeed.subscribers[id]; len(metas) > 0 {
 						name = metas[0].name
 					}
-					slog.Info("subscribed token",
+					slog.Warn("subscribed token",
 						append([]any{"category", marketFeed.category, "name", name}, AppendVerboseIDs("token_id", id)...)...,
 					)
 				}
@@ -402,7 +402,7 @@ func (marketFeed *MarketFeed) Subscribe(tokenID string, name string, ch chan<- a
 				append([]any{"category", marketFeed.category, "name", name, "err", err}, AppendVerboseIDs("token_id", tokenID)...)...,
 			)
 		} else {
-			slog.Info("subscribed token",
+			slog.Warn("subscribed token",
 				append([]any{"category", marketFeed.category, "name", name}, AppendVerboseIDs("token_id", tokenID)...)...,
 			)
 		}

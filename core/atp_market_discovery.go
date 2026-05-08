@@ -106,10 +106,10 @@ func (d *ATPMarketDiscovery) handleNewMarket(ctx context.Context, ev models.NewM
 
 	if err := d.startTrader(ctx, market); err != nil {
 		d.unmarkStarted(market.ConditionID)
-		d.logger.Warn("failed to start ATP trader from new_market",
+		d.logger.Error("failed to start ATP trader from new_market",
 			append([]any{"slug", market.Slug, "err", err}, AppendVerboseIDs("condition_id", market.ConditionID)...)...)
 	} else {
-		d.logger.Error("started ATP trader from new_market",
+		d.logger.Warn("started ATP trader from new_market",
 			append([]any{"slug", market.Slug}, AppendVerboseIDs("condition_id", market.ConditionID)...)...)
 	}
 }

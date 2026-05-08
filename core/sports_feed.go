@@ -240,7 +240,7 @@ func (sportsFeed *SportsFeed) Subscribe(gameID int64, name string, ch chan<- any
 	sportsFeed.mu.Lock()
 	defer sportsFeed.mu.Unlock()
 	sportsFeed.subscribers[gameID] = append(sportsFeed.subscribers[gameID], sportsSubscriberMeta{name: name, ch: ch})
-	slog.Debug("sports subscribed", "name", name, "game_id", strconv.FormatInt(gameID, 10))
+	slog.Warn("sports subscribed", "name", name, "game_id", strconv.FormatInt(gameID, 10))
 }
 
 func (sportsFeed *SportsFeed) Unsubscribe(gameID int64, ch chan<- any) {

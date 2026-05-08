@@ -127,7 +127,7 @@ func (t *ATPTrader) Start(ctx context.Context) error {
 		return fmt.Errorf("parse outcomes for %s: %w", market.ConditionID, err)
 	}
 
-	slog.Info("start ATP market",
+	slog.Warn("start ATP market",
 		append([]any{
 			"slug", market.Slug,
 			"tokens", len(tokenIDs),
@@ -298,7 +298,7 @@ func (t *ATPTrader) Stop() {
 					}, AppendVerboseIDs("token_id", sub.tokenID)...)...,
 				)
 			} else {
-				slog.Info("unsubscribed",
+				slog.Warn("unsubscribed",
 					AppendVerboseIDs("token_id", sub.tokenID)...,
 				)
 			}
