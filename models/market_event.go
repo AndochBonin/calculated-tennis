@@ -12,6 +12,20 @@ type MarketResolvedEvent struct {
 	Tags           []string `json:"tags"`
 }
 
+// NewMarketEvent is a market channel WebSocket message for newly created markets.
+// It is deserialization-only and mirrors the wire payload shape.
+type NewMarketEvent struct {
+	EventType        string   `json:"event_type"`
+	ID               string   `json:"id"`
+	Slug             string   `json:"slug"`
+	SportsMarketType string   `json:"sports_market_type"`
+	Market           string   `json:"market"`
+	ConditionID      string   `json:"condition_id"`
+	AssetIDs         []string `json:"assets_ids"`
+	Outcomes         []string `json:"outcomes"`
+	Timestamp        string   `json:"timestamp"`
+}
+
 // BookEvent is a market channel WebSocket message containing a full order book snapshot.
 type BookEvent struct {
 	EventType string       `json:"event_type"`

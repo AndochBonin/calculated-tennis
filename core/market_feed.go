@@ -47,10 +47,12 @@ type MarketFeed struct {
 	category          Category
 	mu                sync.RWMutex
 	connWriteMu       sync.Mutex
+	newMarketMu       sync.RWMutex
 	subscribers       map[string][]tokenMeta
 	conn              *websocket.Conn
 	ctx               context.Context
 	stopOnce          sync.Once
+	onNewMarket       func(models.NewMarketEvent)
 	wsURL             string
 	dialContext       func(context.Context, string, http.Header) (*websocket.Conn, *http.Response, error)
 	reconnectDelay    time.Duration
@@ -292,8 +294,32 @@ func (marketFeed *MarketFeed) dispatch(msg []byte) {
 		for _, assetID := range e.AssetIDs {
 			marketFeed.broadcastTo(assetID, e)
 		}
+	case "new_market":
+		var e models.NewMarketEvent
+		if err := json.Unmarshal(msg, &e); err != nil {
+			return
+		}
+		marketFeed.notifyNewMarketAsync(e)
 	}
 
+}
+
+// OnNewMarket registers a callback for market channel new_market events.
+// The callback is invoked asynchronously so readLoop is not blocked.
+func (marketFeed *MarketFeed) OnNewMarket(handler func(models.NewMarketEvent)) {
+	marketFeed.newMarketMu.Lock()
+	defer marketFeed.newMarketMu.Unlock()
+	marketFeed.onNewMarket = handler
+}
+
+func (marketFeed *MarketFeed) notifyNewMarketAsync(event models.NewMarketEvent) {
+	marketFeed.newMarketMu.RLock()
+	handler := marketFeed.onNewMarket
+	marketFeed.newMarketMu.RUnlock()
+	if handler == nil {
+		return
+	}
+	go handler(event)
 }
 
 func (marketFeed *MarketFeed) broadcastTo(tokenID string, event any) {

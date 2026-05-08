@@ -80,11 +80,16 @@ func FilterATPMarkets(markets []models.GammaMarket) []models.GammaMarket {
 
 func marketContextDescribesATPChallenger(m models.GammaMarket) bool {
 	for _, event := range m.Events {
+		league := strings.TrimSpace(event.EventMetadata.League)
+		if league != "" && strings.Contains(strings.ToLower(league), "challenger") {
+			return true
+		}
 		contextDescription := strings.TrimSpace(event.EventMetadata.ContextDescription)
 		if contextDescription == "" {
 			continue
 		}
-		if strings.Contains(strings.ToLower(contextDescription), "atp challenger") {
+		if strings.Contains(strings.ToLower(contextDescription), "atp challenger") || 
+			strings.Contains(strings.ToLower(contextDescription), strings.ToLower(league) + " challenger") {
 			return true
 		}
 	}

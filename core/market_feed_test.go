@@ -122,6 +122,55 @@ func TestCategoryFeedDispatchMarketResolvedBroadcastsAllAssets(t *testing.T) {
 	}
 }
 
+func TestCategoryFeedDispatchNewMarketInvokesListenerAsync(t *testing.T) {
+	feed := newCategoryFeed(CategoryATP)
+	received := make(chan models.NewMarketEvent, 1)
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	feed.OnNewMarket(func(ev models.NewMarketEvent) {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		<-release
+		received <- ev
+	})
+
+	start := time.Now()
+	feed.dispatch([]byte(`{
+		"event_type":"new_market",
+		"id":"new-1",
+		"slug":"atp-rome-final",
+		"sports_market_type":"moneyline",
+		"market":"market-123",
+		"condition_id":"cond-123",
+		"assets_ids":["a1","a2"],
+		"outcomes":["yes","no"],
+		"timestamp":"2026-01-01T00:00:00Z"
+	}`))
+
+	select {
+	case <-entered:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("expected new_market listener to start")
+	}
+
+	if elapsed := time.Since(start); elapsed > 50*time.Millisecond {
+		t.Fatalf("expected dispatch to return without blocking listener, took %v", elapsed)
+	}
+
+	close(release)
+
+	select {
+	case got := <-received:
+		if got.EventType != "new_market" || got.Slug != "atp-rome-final" || got.ConditionID != "cond-123" {
+			t.Fatalf("unexpected new_market event fields: %+v", got)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("expected parsed new_market event")
+	}
+}
+
 func TestCategoryFeedDispatchInvalidOrUnknownEvents(t *testing.T) {
 	feed := newCategoryFeed(CategoryATP)
 	ch := make(chan any, 1)

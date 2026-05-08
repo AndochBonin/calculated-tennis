@@ -27,6 +27,81 @@ type traderRunner interface {
 	Signals() <-chan core.TradeSignal
 }
 
+type traderRegistry struct {
+	ctx      context.Context
+	signalCh chan core.TradeSignal
+	forwardWg sync.WaitGroup
+
+	mu      sync.Mutex
+	traders []traderRunner
+}
+
+func newTraderRegistry(ctx context.Context, bufferSize int) *traderRegistry {
+	if bufferSize <= 0 {
+		bufferSize = 1
+	}
+	return &traderRegistry{
+		ctx:      ctx,
+		signalCh: make(chan core.TradeSignal, bufferSize),
+	}
+}
+
+func (r *traderRegistry) Register(tr traderRunner) {
+	if r == nil || tr == nil {
+		return
+	}
+
+	r.mu.Lock()
+	r.traders = append(r.traders, tr)
+	r.mu.Unlock()
+
+	r.forwardWg.Add(1)
+	go func(t traderRunner) {
+		defer r.forwardWg.Done()
+		for {
+			select {
+			case <-r.ctx.Done():
+				return
+			case sig, ok := <-t.Signals():
+				if !ok {
+					return
+				}
+				select {
+				case r.signalCh <- sig:
+				case <-r.ctx.Done():
+					return
+				}
+			}
+		}
+	}(tr)
+}
+
+func (r *traderRegistry) Signals() <-chan core.TradeSignal {
+	if r == nil {
+		return nil
+	}
+	return r.signalCh
+}
+
+func (r *traderRegistry) StopAll() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	traders := append([]traderRunner(nil), r.traders...)
+	r.mu.Unlock()
+	for _, tr := range traders {
+		tr.Stop()
+	}
+}
+
+func (r *traderRegistry) WaitForForwarders() {
+	if r == nil {
+		return
+	}
+	r.forwardWg.Wait()
+}
+
 type feedManagerRunner interface {
 	Start(context.Context)
 	Stop()
@@ -122,8 +197,9 @@ func startATPTraders(
 	marketFeed *core.MarketFeed,
 	sportsFeed *core.SportsFeed,
 	markets []models.GammaMarket,
-) []traderRunner {
+) ([]traderRunner, []string) {
 	var atpTraders []traderRunner
+	var startedConditionIDs []string
 	for _, m := range markets {
 		tr := newATPTrader(gammaClient, clobClient, marketFeed, sportsFeed, m)
 		if err := tr.Start(ctx); err != nil {
@@ -132,33 +208,9 @@ func startATPTraders(
 			continue
 		}
 		atpTraders = append(atpTraders, tr)
+		startedConditionIDs = append(startedConditionIDs, m.ConditionID)
 	}
-	return atpTraders
-}
-
-func forwardAllTraderSignals(ctx context.Context, traders []traderRunner) (<-chan core.TradeSignal, *sync.WaitGroup) {
-	signalCh := make(chan core.TradeSignal, 100)
-	var forwardWg sync.WaitGroup
-	for _, tr := range traders {
-		forwardWg.Go(func() {
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case sig, ok := <-tr.Signals():
-					if !ok {
-						return
-					}
-					select {
-					case signalCh <- sig:
-					case <-ctx.Done():
-						return
-					}
-				}
-			}
-		})
-	}
-	return signalCh, &forwardWg
+	return atpTraders, startedConditionIDs
 }
 
 // runSignalLogger drains signals until shutdown: when ctx is cancelled (root cancel runs before
@@ -197,17 +249,18 @@ func waitInterrupt() {
 }
 
 func shutdown(
-	traders []traderRunner,
-	forwardWg *sync.WaitGroup,
+	registry *traderRegistry,
 	cancel context.CancelFunc,
 	feedManager feedManagerRunner,
 	sportsFeed *core.SportsFeed,
 ) {
-	for _, tr := range traders {
-		tr.Stop()
+	if registry != nil {
+		registry.StopAll()
 	}
-	forwardWg.Wait()
 	cancel()
+	if registry != nil {
+		registry.WaitForForwarders()
+	}
 	if feedManager != nil {
 		feedManager.Stop()
 	}
@@ -245,11 +298,26 @@ func main() {
 	filtered := core.FilterATPMarkets(markets)
 	slog.Info("ATP markets after filter", "filtered", len(filtered), "total", len(markets))
 
-	atpTraders := startATPTraders(ctx, gammaClient, clobClient, marketFeed, sportsFeed, filtered)
+	atpTraders, startedConditionIDs := startATPTraders(ctx, gammaClient, clobClient, marketFeed, sportsFeed, filtered)
 
-	signalCh, forwardWg := forwardAllTraderSignals(ctx, atpTraders)
-	runSignalLogger(ctx, signalCh)
+	registry := newTraderRegistry(ctx, 100)
+	for _, tr := range atpTraders {
+		registry.Register(tr)
+	}
+	runSignalLogger(ctx, registry.Signals())
+
+	discovery := core.NewATPMarketDiscovery(gammaClient, func(ctx context.Context, market models.GammaMarket) error {
+		tr := newATPTrader(gammaClient, clobClient, marketFeed, sportsFeed, market)
+		if err := tr.Start(ctx); err != nil {
+			return err
+		}
+		registry.Register(tr)
+		return nil
+	}, startedConditionIDs)
+	marketFeed.OnNewMarket(func(ev models.NewMarketEvent) {
+		discovery.HandleNewMarket(ctx, ev)
+	})
 
 	waitInterrupt()
-	shutdown(atpTraders, forwardWg, cancel, feedManager, sportsFeed)
+	shutdown(registry, cancel, feedManager, sportsFeed)
 }

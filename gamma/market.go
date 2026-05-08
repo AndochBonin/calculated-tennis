@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/AndochBonin/polymarket/models"
@@ -59,6 +60,7 @@ func NewClient(opts ...Option) *Client {
 
 type MarketsParams struct {
 	TagID             int 
+	Slug              string
 	Closed            *bool
 	Limit             int
 	Offset            int
@@ -87,6 +89,12 @@ func addTimeParam(q url.Values, key string, value *time.Time) {
 	}
 }
 
+func addStringParam(q url.Values, key string, value string) {
+	if strings.TrimSpace(value) != "" {
+		q.Set(key, strings.TrimSpace(value))
+	}
+}
+
 func (c *Client) GetMarkets(ctx context.Context, params MarketsParams) ([]models.GammaMarket, error) {
 	u, err := url.Parse(c.baseURL + "/markets")
 	if err != nil {
@@ -96,6 +104,7 @@ func (c *Client) GetMarkets(ctx context.Context, params MarketsParams) ([]models
 	q := u.Query()
 
 	addIntParam(q, "tag_id", params.TagID)
+	addStringParam(q, "slug", params.Slug)
 	addBoolParam(q, "closed", params.Closed)
 	addIntParam(q, "limit", params.Limit)
 	addIntParam(q, "offset", params.Offset)

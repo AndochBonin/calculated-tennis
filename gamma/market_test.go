@@ -171,6 +171,7 @@ func TestWithHTTPClientUsesInjectedClient(t *testing.T) {
 
 func TestGetMarketsIncludesDatePaginationAndRepeatedSportsQueryParams(t *testing.T) {
 	closed := true
+	slug := "atp-rome-open"
 	startMin := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
 	startMax := time.Date(2026, time.January, 3, 3, 4, 5, 0, time.UTC)
 	endMin := time.Date(2026, time.February, 2, 3, 4, 5, 0, time.UTC)
@@ -178,6 +179,7 @@ func TestGetMarketsIncludesDatePaginationAndRepeatedSportsQueryParams(t *testing
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
+		assertQueryValue(t, q, "slug", slug)
 		assertQueryValue(t, q, "closed", "true")
 		assertQueryValue(t, q, "limit", "25")
 		assertQueryValue(t, q, "offset", "5")
@@ -194,6 +196,7 @@ func TestGetMarketsIncludesDatePaginationAndRepeatedSportsQueryParams(t *testing
 
 	c := NewClient(WithBaseURL(srv.URL))
 	_, err := c.GetMarkets(context.Background(), MarketsParams{
+		Slug:              slug,
 		Closed:            &closed,
 		Limit:             25,
 		Offset:            5,

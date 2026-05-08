@@ -170,6 +170,20 @@ func TestFilterATPMarkets(t *testing.T) {
 				},
 			},
 		},
+		{
+			EnableOrderBook: true,
+			Slug:            "atp-challenger-league-only",
+			ConditionID:     "challenger-league-only",
+			ClobTokenIds:    `["yes-token","no-token"]`,
+			Outcomes:        `["YES","NO"]`,
+			Events: []models.GammaMarketEvent{
+				{
+					EventMetadata: models.GammaMarketEventMetadata{
+						League: "ATP Challenger - Wuxi",
+					},
+				},
+			},
+		},
 	}
 
 	got := FilterATPMarkets(markets)
@@ -187,7 +201,7 @@ func TestFilterATPMarkets(t *testing.T) {
 		}
 	}
 
-	for _, unwanted := range []string{"challenger-uppercase", "challenger-lowercase"} {
+	for _, unwanted := range []string{"challenger-uppercase", "challenger-lowercase", "challenger-league-only"} {
 		if _, ok := gotByConditionID[unwanted]; ok {
 			t.Fatalf("expected market %q to be excluded", unwanted)
 		}
@@ -230,6 +244,19 @@ func TestATPTraderStartValidationErrors(t *testing.T) {
 				{
 					EventMetadata: models.GammaMarketEventMetadata{
 						ContextDescription: "Wuxi Challenger round of 16 ATP Challenger clash",
+					},
+				},
+			},
+			wantErrSubstrs: []string{"reject challenger market", "ATP Challenger"},
+		},
+		{
+			name:         "challenger league rejected",
+			clobTokenIDs: `["yes-token","no-token"]`,
+			outcomes:     `["YES","NO"]`,
+			events: []models.GammaMarketEvent{
+				{
+					EventMetadata: models.GammaMarketEventMetadata{
+						League: "ATP Challenger - Wuxi",
 					},
 				},
 			},

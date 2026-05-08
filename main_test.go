@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -117,9 +116,9 @@ func TestSetupLoggingWarnsOnInvalidLogLevel(t *testing.T) {
 
 type fakeFeedManager struct {
 	marketFeed *core.MarketFeed
-	feedErr error
-	started bool
-	stopped bool
+	feedErr    error
+	started    bool
+	stopped    bool
 }
 
 func (f *fakeFeedManager) Start(context.Context) { f.started = true }
@@ -256,7 +255,7 @@ func (f *fakeTrader) Start(context.Context) error {
 	f.startCalls++
 	return f.startErr
 }
-func (f *fakeTrader) Stop()                         { f.stopCalls++ }
+func (f *fakeTrader) Stop()                            { f.stopCalls++ }
 func (f *fakeTrader) Signals() <-chan core.TradeSignal { return f.signalCh }
 
 func TestStartATPTradersSkipsFailedStarts(t *testing.T) {
@@ -276,23 +275,26 @@ func TestStartATPTradersSkipsFailedStarts(t *testing.T) {
 		return okTrader
 	}
 
-	traders := startATPTraders(context.Background(), &gamma.Client{}, &clob.Client{}, &core.MarketFeed{}, nil, []models.GammaMarket{
+	tradersOnly, startedIDs := startATPTraders(context.Background(), &gamma.Client{}, &clob.Client{}, &core.MarketFeed{}, nil, []models.GammaMarket{
 		{ConditionID: "ok"},
 		{ConditionID: "bad"},
 	})
 
-	if len(traders) != 1 {
-		t.Fatalf("len(startATPTraders(...)) = %d, want 1", len(traders))
+	if len(tradersOnly) != 1 {
+		t.Fatalf("len(startATPTraders(...)) = %d, want 1", len(tradersOnly))
 	}
-	if traders[0] != okTrader {
+	if tradersOnly[0] != okTrader {
 		t.Fatal("expected only successful trader in result")
+	}
+	if len(startedIDs) != 1 || startedIDs[0] != "ok" {
+		t.Fatalf("started IDs = %#v, want [ok]", startedIDs)
 	}
 	if created["ok"].startCalls != 1 || created["bad"].startCalls != 1 {
 		t.Fatalf("unexpected start calls: ok=%d bad=%d", created["ok"].startCalls, created["bad"].startCalls)
 	}
 }
 
-func TestForwardAllTraderSignals(t *testing.T) {
+func TestTraderRegistryForwardsSignalsFromRegisteredTraders(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -304,35 +306,38 @@ func TestForwardAllTraderSignals(t *testing.T) {
 	close(t1.signalCh)
 	close(t2.signalCh)
 
-	signalCh, wg := forwardAllTraderSignals(ctx, []traderRunner{t1, t2})
+	registry := newTraderRegistry(ctx, 2)
+	registry.Register(t1)
+	registry.Register(t2)
 
 	got := map[string]bool{}
 	timeout := time.After(2 * time.Second)
 	for len(got) < 2 {
 		select {
-		case sig := <-signalCh:
+		case sig := <-registry.Signals():
 			got[sig.TokenID] = true
 		case <-timeout:
 			t.Fatalf("timed out waiting for forwarded signals: %#v", got)
 		}
 	}
 
-	wg.Wait()
+	registry.WaitForForwarders()
 	cancel()
 }
 
-func TestForwardAllTraderSignalsStopsOnContextCancelWhileWaitingForTraderSignal(t *testing.T) {
+func TestTraderRegistryStopsForwardersOnContextCancelWhileWaitingForSignal(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
 	tr := &fakeTrader{signalCh: make(chan core.TradeSignal)}
-	_, wg := forwardAllTraderSignals(ctx, []traderRunner{tr})
+	registry := newTraderRegistry(ctx, 1)
+	registry.Register(tr)
 
 	cancel()
 
 	done := make(chan struct{})
 	go func() {
-		wg.Wait()
+		registry.WaitForForwarders()
 		close(done)
 	}()
 
@@ -343,25 +348,23 @@ func TestForwardAllTraderSignalsStopsOnContextCancelWhileWaitingForTraderSignal(
 	}
 }
 
-func TestForwardAllTraderSignalsStopsOnContextCancelWhileForwarding(t *testing.T) {
+func TestTraderRegistryStopsForwardersOnContextCancelWhileForwarding(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	var traders []traderRunner
+	registry := newTraderRegistry(ctx, 100)
 	for i := 0; i < 101; i++ {
 		ch := make(chan core.TradeSignal, 1)
 		ch <- core.TradeSignal{TokenID: "tok"}
 		close(ch)
-		traders = append(traders, &fakeTrader{signalCh: ch})
+		registry.Register(&fakeTrader{signalCh: ch})
 	}
-
-	_, wg := forwardAllTraderSignals(ctx, traders)
 
 	cancel()
 
 	done := make(chan struct{})
 	go func() {
-		wg.Wait()
+		registry.WaitForForwarders()
 		close(done)
 	}()
 
@@ -441,34 +444,24 @@ func TestRunSignalLoggerWrapper(t *testing.T) {
 }
 
 func TestShutdownStopsAndCancels(t *testing.T) {
+	ctx, ctxCancel := context.WithCancel(context.Background())
+	t.Cleanup(ctxCancel)
+
 	t1 := &fakeTrader{signalCh: make(chan core.TradeSignal)}
 	t2 := &fakeTrader{signalCh: make(chan core.TradeSignal)}
 	fm := &fakeFeedManager{}
 
 	var canceled atomic.Bool
-	cancel := func() { canceled.Store(true) }
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-	done := make(chan struct{})
-	go func() {
-		shutdown([]traderRunner{t1, t2}, &wg, cancel, fm, nil)
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		t.Fatal("shutdown returned before wait group completed")
-	case <-time.After(100 * time.Millisecond):
+	cancel := func() {
+		canceled.Store(true)
+		ctxCancel()
 	}
 
-	wg.Done()
+	registry := newTraderRegistry(ctx, 10)
+	registry.Register(t1)
+	registry.Register(t2)
 
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("shutdown did not return after wait group completion")
-	}
+	shutdown(registry, cancel, fm, nil)
 
 	if t1.stopCalls != 1 || t2.stopCalls != 1 {
 		t.Fatalf("stop calls = t1:%d t2:%d, want 1 each", t1.stopCalls, t2.stopCalls)
