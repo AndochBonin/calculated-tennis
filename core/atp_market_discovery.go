@@ -71,18 +71,7 @@ func (d *ATPMarketDiscovery) HandleNewMarket(ctx context.Context, ev models.NewM
 		return
 	}
 
-	key := slug
-	if key == "" {
-		key = strings.TrimSpace(ev.ConditionID)
-	}
-	if key == "" {
-		key = strings.TrimSpace(ev.Market)
-	}
-	if key == "" {
-		return
-	}
-
-	_, _, _ = d.sf.Do(key, func() (any, error) {
+	_, _, _ = d.sf.Do(slug, func() (any, error) {
 		d.handleNewMarket(ctx, ev)
 		return nil, nil
 	})

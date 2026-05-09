@@ -386,6 +386,209 @@ func TestATPMarketDiscoveryUsesContextCancellationDuringRetry(t *testing.T) {
 	})
 }
 
+func TestNewATPMarketDiscoverySkipsEmptySeedConditionIDs(t *testing.T) {
+	t.Parallel()
+
+	d := NewATPMarketDiscovery(nil, nil, []string{"", "  ", "\t"})
+	if len(d.startedSet) != 0 {
+		t.Fatalf("expected no seeded IDs, got %d entries", len(d.startedSet))
+	}
+
+	d2 := NewATPMarketDiscovery(nil, nil, []string{"", "seeded"})
+	if len(d2.startedSet) != 1 {
+		t.Fatalf("expected one seeded ID, got %d", len(d2.startedSet))
+	}
+	if _, ok := d2.startedSet["seeded"]; !ok {
+		t.Fatal("expected seeded condition id in set")
+	}
+}
+
+func TestATPMarketDiscoveryNilReceiverOrDepsNoOp(t *testing.T) {
+	t.Parallel()
+
+	ev := models.NewMarketEvent{
+		Slug:             "atp-test-open",
+		SportsMarketType: "moneyline",
+		ConditionID:      "c1",
+	}
+
+	var nilDiscovery *ATPMarketDiscovery
+	nilDiscovery.HandleNewMarket(context.Background(), ev)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("gamma should not be called when deps are nil")
+	}))
+	defer srv.Close()
+	gammaClient := gamma.NewClient(gamma.WithBaseURL(srv.URL))
+
+	NewATPMarketDiscovery(nil, func(context.Context, models.GammaMarket) error { return nil }, nil).
+		HandleNewMarket(context.Background(), ev)
+
+	NewATPMarketDiscovery(gammaClient, nil, nil).
+		HandleNewMarket(context.Background(), ev)
+}
+
+func TestATPMarketDiscoveryHydrateExhaustsEmptyRetries(t *testing.T) {
+	t.Parallel()
+
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+	gammaClient := gamma.NewClient(gamma.WithBaseURL(srv.URL))
+
+	d := NewATPMarketDiscovery(gammaClient, func(context.Context, models.GammaMarket) error {
+		t.Fatal("starter should not run when hydrate never returns markets")
+		return nil
+	}, nil)
+	d.emptyResultRetries = 0
+	d.retryDelay = 1 * time.Millisecond
+
+	d.HandleNewMarket(context.Background(), models.NewMarketEvent{
+		Slug:             "atp-empty-hydrate",
+		SportsMarketType: "moneyline",
+		ConditionID:      "cond-x",
+	})
+
+	if calls != 1 {
+		t.Fatalf("expected 1 GetMarkets call for zero extra retries, got %d", calls)
+	}
+}
+
+func TestATPMarketDiscoveryHydrateStopsOnContextCancelDuringRetryDelay(t *testing.T) {
+	t.Parallel()
+
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+	gammaClient := gamma.NewClient(gamma.WithBaseURL(srv.URL))
+
+	d := NewATPMarketDiscovery(gammaClient, func(context.Context, models.GammaMarket) error {
+		t.Fatal("starter should not run")
+		return nil
+	}, nil)
+	d.emptyResultRetries = 2
+	d.retryDelay = 200 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(15 * time.Millisecond)
+		cancel()
+	}()
+
+	d.HandleNewMarket(ctx, models.NewMarketEvent{
+		Slug:             "atp-cancel-retry",
+		SportsMarketType: "moneyline",
+		ConditionID:      "cond-y",
+	})
+
+	if calls != 1 {
+		t.Fatalf("expected 1 GetMarkets before ctx cancel during backoff, got %d", calls)
+	}
+}
+
+func TestATPMarketDiscoveryNormalizeMarketsEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	d := NewATPMarketDiscovery(nil, nil, nil)
+
+	if _, ok := d.normalizeMarkets(nil, models.NewMarketEvent{}); ok {
+		t.Fatal("expected false for nil markets slice")
+	}
+	if _, ok := d.normalizeMarkets([]models.GammaMarket{}, models.NewMarketEvent{}); ok {
+		t.Fatal("expected false for empty markets slice")
+	}
+
+	mismatch, ok := d.normalizeMarkets([]models.GammaMarket{
+		{ConditionID: "have-a"},
+	}, models.NewMarketEvent{ConditionID: "want-b"})
+	if ok || mismatch.ConditionID != "" {
+		t.Fatalf("expected no match for condition ID mismatch, ok=%v m=%+v", ok, mismatch)
+	}
+
+	one, ok := d.normalizeMarkets([]models.GammaMarket{
+		{ConditionID: "solo", Slug: "atp-solo"},
+	}, models.NewMarketEvent{Slug: "atp-solo", SportsMarketType: "moneyline"})
+	if !ok || one.ConditionID != "solo" {
+		t.Fatalf("expected single market when no wanted condition id, got ok=%v m=%+v", ok, one)
+	}
+}
+
+func TestATPMarketDiscoveryMarkHelpersRejectEmptyID(t *testing.T) {
+	t.Parallel()
+
+	d := NewATPMarketDiscovery(nil, nil, nil)
+	if d.markStarted("  ") {
+		t.Fatal("markStarted should reject whitespace-only id")
+	}
+	d.unmarkStarted(" \t ") // no panic
+}
+
+func TestATPMarketDiscoveryHydratedSingleMarketWithoutConditionIDStarts(t *testing.T) {
+	t.Parallel()
+
+	const slug = "atp-ljubljana-open"
+	const conditionID = "cond-solo"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(discoveryMarketJSON(slug, conditionID, "ATP singles")))
+	}))
+	defer srv.Close()
+	gammaClient := gamma.NewClient(gamma.WithBaseURL(srv.URL))
+
+	var gotCondition string
+	d := NewATPMarketDiscovery(gammaClient, func(_ context.Context, m models.GammaMarket) error {
+		gotCondition = m.ConditionID
+		return nil
+	}, nil)
+	d.retryDelay = 1 * time.Millisecond
+
+	d.HandleNewMarket(context.Background(), models.NewMarketEvent{
+		Slug:             slug,
+		SportsMarketType: "moneyline",
+	})
+
+	if gotCondition != conditionID {
+		t.Fatalf("expected starter for lone hydrated market, got condition %q", gotCondition)
+	}
+}
+
+func TestATPMarketDiscoveryNormalizeRejectsMissingWantedConditionID(t *testing.T) {
+	t.Parallel()
+
+	const slug = "atp-kitzbuhel-open"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(discoveryMarketJSON(slug, "have-id", "ATP")))
+	}))
+	defer srv.Close()
+	gammaClient := gamma.NewClient(gamma.WithBaseURL(srv.URL))
+
+	started := false
+	d := NewATPMarketDiscovery(gammaClient, func(context.Context, models.GammaMarket) error {
+		started = true
+		return nil
+	}, nil)
+	d.retryDelay = 1 * time.Millisecond
+
+	d.HandleNewMarket(context.Background(), models.NewMarketEvent{
+		Slug:             slug,
+		SportsMarketType: "moneyline",
+		ConditionID:      "different-id",
+	})
+
+	if started {
+		t.Fatal("expected no start when hydrated row does not match wanted condition id")
+	}
+}
+
 func TestATPMarketDiscoveryPassesSlugAndClosedQueryToGamma(t *testing.T) {
 	t.Parallel()
 

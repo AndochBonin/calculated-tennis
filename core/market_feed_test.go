@@ -122,6 +122,62 @@ func TestCategoryFeedDispatchMarketResolvedBroadcastsAllAssets(t *testing.T) {
 	}
 }
 
+func TestCategoryFeedDispatchNewMarketInnerUnmarshalError(t *testing.T) {
+	feed := newCategoryFeed(CategoryATP)
+	called := make(chan struct{}, 1)
+	feed.OnNewMarket(func(models.NewMarketEvent) {
+		close(called)
+	})
+
+	feed.dispatch([]byte(`{"event_type":"new_market","assets_ids":"not-an-array"}`))
+
+	select {
+	case <-called:
+		t.Fatal("OnNewMarket should not run when inner unmarshal fails")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestCategoryFeedNotifyNewMarketAsyncNilHandlerNoPanic(t *testing.T) {
+	feed := newCategoryFeed(CategoryATP)
+	feed.notifyNewMarketAsync(models.NewMarketEvent{EventType: "new_market", Slug: "atp-nil-handler"})
+}
+
+func TestCategoryFeedBroadcastToDropsWhenChannelFull(t *testing.T) {
+	feed := newCategoryFeed(CategoryATP)
+	ch := make(chan any, 1)
+	ch <- models.PriceEvent{EventType: "price_change"}
+	feed.subscribers["asset-full"] = []tokenMeta{{name: "full", ch: ch}}
+
+	feed.broadcastTo("asset-full", models.BookEvent{EventType: "book"})
+
+	select {
+	case got := <-ch:
+		pe, ok := got.(models.PriceEvent)
+		if !ok || pe.EventType != "price_change" {
+			t.Fatalf("expected original price event to remain, got %#v", got)
+		}
+	default:
+		t.Fatal("expected buffered event to still be present")
+	}
+}
+
+func TestCategoryFeedBroadcastErrorDropsWhenChannelFull(t *testing.T) {
+	feed := newCategoryFeed(CategoryATP)
+	ch := make(chan any, 1)
+	first := errors.New("first")
+	second := errors.New("second")
+	ch <- first
+	feed.subscribers["a"] = []tokenMeta{{name: "x", ch: ch}}
+
+	feed.broadcastError(second)
+
+	gotFirst := <-ch
+	if gotFirst != first {
+		t.Fatalf("expected first error to remain in buffer, got %v", gotFirst)
+	}
+}
+
 func TestCategoryFeedDispatchNewMarketInvokesListenerAsync(t *testing.T) {
 	feed := newCategoryFeed(CategoryATP)
 	received := make(chan models.NewMarketEvent, 1)

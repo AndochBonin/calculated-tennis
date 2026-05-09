@@ -28,8 +28,8 @@ type traderRunner interface {
 }
 
 type traderRegistry struct {
-	ctx      context.Context
-	signalCh chan core.TradeSignal
+	ctx       context.Context
+	signalCh  chan core.TradeSignal
 	forwardWg sync.WaitGroup
 
 	mu      sync.Mutex
@@ -184,6 +184,7 @@ func newClients() (*gamma.Client, *clob.Client) {
 func fetchATPMarkets(ctx context.Context, gammaClient gammaMarketsFetcher) ([]models.GammaMarket, error) {
 	closed := false
 	return gammaClient.GetMarkets(ctx, gamma.MarketsParams{
+		Limit:             50,
 		TagID:             int(core.TagATP),
 		Closed:            &closed,
 		SportsMarketTypes: []string{"moneyline"},
@@ -296,7 +297,7 @@ func main() {
 		os.Exit(1)
 	}
 	filtered := core.FilterATPMarkets(markets)
-	slog.Info("ATP markets after filter", "filtered", len(filtered), "total", len(markets))
+	slog.Warn("ATP markets after filter", "filtered", len(filtered), "total", len(markets))
 
 	atpTraders, startedConditionIDs := startATPTraders(ctx, gammaClient, clobClient, marketFeed, sportsFeed, filtered)
 

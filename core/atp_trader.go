@@ -216,7 +216,7 @@ func (t *ATPTrader) handleMarket(tokenID string, name string, event any) {
 		if !strings.EqualFold(e.Market, t.market.ConditionID) {
 			return
 		}
-		slog.Info("market resolved, stopping ATP trader",
+		slog.Warn("market resolved, stopping ATP trader",
 			append([]any{
 				"slug", t.market.Slug,
 				"winning_asset_id", e.WinningAssetID,
@@ -264,21 +264,11 @@ func (t *ATPTrader) listenSports(ctx context.Context, gameID int64, name string,
 func (t *ATPTrader) handleSports(gameID int64, name string, event any) {
 	switch e := event.(type) {
 	case models.SportsEvent:
-		slog.Info("sport event",
+		slog.Warn("sport event",
 			[]any{
 				"name", name,
-				"game_id", e.GameID,
 				"league", e.LeagueAbbreviation,
-				"home", e.HomeTeam,
-				"away", e.AwayTeam,
-				"status", e.Status,
 				"score", e.Score,
-				"period", e.Period,
-				"live", e.Live,
-				"ended", e.Ended,
-				"event_state_type", e.EventState.Type,
-				"tournament", e.EventState.TournamentName,
-				"tennis_round", e.EventState.TennisRound,
 			}...,
 		)
 	case error:
