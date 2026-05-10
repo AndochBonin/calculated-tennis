@@ -12,11 +12,25 @@ run:
 live-clob:
 	go run ./cmd/liveclob
 
+# Place a 1-share BUY GTC limit order on the live CLOB (real funds / real API).
+# Same env as live-clob, plus a private key for EIP-712 signing:
+# POLYMARKET_PRIVATE_KEY (preferred) or METAMASK_KEY.
+# Usage: make place-order PRICE=0.50 TOKEN=<token_id>
+place-order:
+	@if [ -z "$(PRICE)" ] || [ -z "$(TOKEN)" ]; then \
+		echo "usage: make place-order PRICE=<decimal> TOKEN=<token_id>"; \
+		exit 2; \
+	fi
+	go run ./cmd/placeorder -price=$(PRICE) $(TOKEN)
+
 venv:
 	@source .venv/bin/activate; $$SHELL
 
 creds:
 	python3 cmd/python/generate_creds.py
+
+deploy-wallet:
+	python3 cmd/python/deploy_wallet.py
 
 test:
 	go test ./... -coverprofile=coverage.out

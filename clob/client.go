@@ -141,6 +141,16 @@ func (c *Client) fetchClobServerUnix() int64 {
 	return ts
 }
 
+// orderMessageTimestampMillis returns milliseconds for EIP-712 order timestamps.
+// When useServerTime is true, it uses GET /time (seconds) scaled to ms; /time is
+// second resolution so the value is coarse but valid for uniqueness alongside salt.
+func (c *Client) orderMessageTimestampMillis() int64 {
+	if c.useServerTime {
+		return c.fetchClobServerUnix() * 1000
+	}
+	return time.Now().UnixMilli()
+}
+
 func (c *Client) addAuthHeaders(req *http.Request, body string) {
 	ts := time.Now().Unix()
 	if c.useServerTime {

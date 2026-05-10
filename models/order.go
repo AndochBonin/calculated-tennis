@@ -4,11 +4,11 @@ package models
 type OrderStatus string
 
 const (
-	OrderStatusLive                    OrderStatus = "ORDER_STATUS_LIVE"
-	OrderStatusInvalid                 OrderStatus = "ORDER_STATUS_INVALID"
-	OrderStatusCanceledMarketResolved  OrderStatus = "ORDER_STATUS_CANCELED_MARKET_RESOLVED"
-	OrderStatusCanceled                OrderStatus = "ORDER_STATUS_CANCELED"
-	OrderStatusMatched                 OrderStatus = "ORDER_STATUS_MATCHED"
+	OrderStatusLive                   OrderStatus = "ORDER_STATUS_LIVE"
+	OrderStatusInvalid                OrderStatus = "ORDER_STATUS_INVALID"
+	OrderStatusCanceledMarketResolved OrderStatus = "ORDER_STATUS_CANCELED_MARKET_RESOLVED"
+	OrderStatusCanceled               OrderStatus = "ORDER_STATUS_CANCELED"
+	OrderStatusMatched                OrderStatus = "ORDER_STATUS_MATCHED"
 )
 
 // OrderSide represents the direction of an order.
@@ -79,4 +79,27 @@ type PlaceOrderRequest struct {
 	Owner     string       `json:"owner"`
 	OrderType OrderType    `json:"orderType"`
 	DeferExec bool         `json:"deferExec"`
+}
+
+// PlaceOrderResponse is the response body returned from POST /order.
+type PlaceOrderResponse struct {
+	Success            bool     `json:"success"`
+	OrderID            string   `json:"orderID"`
+	Status             string   `json:"status"`
+	MakingAmount       string   `json:"makingAmount"`
+	TakingAmount       string   `json:"takingAmount"`
+	TransactionsHashes []string `json:"transactionsHashes"`
+	TradeIDs           []string `json:"tradeIDs"`
+	ErrorMsg           string   `json:"errorMsg"`
+}
+
+// CancelOrderRequest is the request body for DELETE /order.
+type CancelOrderRequest struct {
+	OrderID string `json:"orderID"`
+}
+
+// CancelOrderResponse is the response body returned from DELETE /order.
+type CancelOrderResponse struct {
+	Canceled    []string          `json:"canceled"`
+	NotCanceled map[string]string `json:"not_canceled"`
 }

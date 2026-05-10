@@ -1,6 +1,7 @@
 package clob
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -8,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/AndochBonin/polymarket/models"
 )
 
 func TestNewClientPicksUpBaseURLFromEnv(t *testing.T) {
@@ -50,6 +53,39 @@ func TestFetchClobServerUnixParsesPlainBody(t *testing.T) {
 	c := NewClient(WithBaseURL(srv.URL))
 	if ts := c.fetchClobServerUnix(); ts != 1730000999 {
 		t.Fatalf("fetchClobServerUnix: got %d", ts)
+	}
+}
+
+func TestOrderMessageTimestampMillisUsesServerTimeWhenEnabled(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/time" {
+			t.Fatalf("path: %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("1730000999"))
+	}))
+	defer srv.Close()
+
+	c := NewClient(WithBaseURL(srv.URL), WithServerSignedTime(true))
+	if got := c.orderMessageTimestampMillis(); got != 1730000999000 {
+		t.Fatalf("orderMessageTimestampMillis: got %d want 1730000999000", got)
+	}
+}
+
+func TestOrderMessageTimestampMillisUsesLocalClockWhenServerTimeDisabled(t *testing.T) {
+	// Server errors if hit; WithServerSignedTime(false) must not call GET /time.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected request to %s", r.URL.Path)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	c := NewClient(WithBaseURL(srv.URL), WithServerSignedTime(false))
+	before := time.Now().UnixMilli()
+	got := c.orderMessageTimestampMillis()
+	after := time.Now().UnixMilli()
+	if got < before || got > after {
+		t.Fatalf("orderMessageTimestampMillis: got %d not in [%d,%d]", got, before, after)
 	}
 }
 
@@ -230,5 +266,219 @@ func TestAddAuthHeadersUsesServerTimeFromCLOB(t *testing.T) {
 	c := NewClient(WithBaseURL(srv.URL), WithServerSignedTime(true))
 	if _, err := c.GetOrders(); err != nil {
 		t.Fatalf("GetOrders: %v", err)
+	}
+}
+
+func TestPlaceOrder(t *testing.T) {
+	t.Setenv("POLYMARKET_API_KEY", "k")
+	t.Setenv("POLYMARKET_API_SECRET", "AQIDBA==")
+	t.Setenv("POLYMARKET_PASSPHRASE", "p")
+	t.Setenv("POLYMARKET_ADDRESS", "0x1")
+
+	ref := NewClient()
+	payload := &models.OrderPayload{
+		Maker:         "0xmaker",
+		Signer:        "0xsigner",
+		TokenID:       "token1",
+		MakerAmount:   "1",
+		TakerAmount:   "2",
+		Side:          models.OrderSideBuy,
+		Expiration:    "0",
+		Timestamp:     "123",
+		Signature:     "sig",
+		Salt:          1,
+		SignatureType: 0,
+	}
+	wantReq := models.PlaceOrderRequest{
+		Order:     *payload,
+		Owner:     "0xowner",
+		OrderType: models.OrderTypeGTC,
+		DeferExec: false,
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/time", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("1730000999"))
+	})
+	mux.HandleFunc("/order", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("PlaceOrder: want POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/order" {
+			t.Fatalf("PlaceOrder: path %q", r.URL.Path)
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		var got models.PlaceOrderRequest
+		if err := json.Unmarshal(body, &got); err != nil {
+			t.Fatalf("unmarshal body: %v", err)
+		}
+		if got != wantReq {
+			t.Fatalf("request round-trip: got %+v want %+v", got, wantReq)
+		}
+		ts := r.Header.Get("POLY_TIMESTAMP")
+		if ts != "1730000999" {
+			t.Errorf("POLY_TIMESTAMP: got %q want 1730000999", ts)
+		}
+		wantSig := ref.hmacSignature(ts, http.MethodPost, r.URL.Path, string(body))
+		if gotSig := r.Header.Get("POLY_SIGNATURE"); gotSig != wantSig {
+			t.Errorf("POLY_SIGNATURE: got %q want %q", gotSig, wantSig)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true,"orderID":"ord-1","status":"live"}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	c := NewClient(WithBaseURL(srv.URL), WithServerSignedTime(true))
+	out, err := c.PlaceOrder(payload, "0xowner", models.OrderTypeGTC)
+	if err != nil {
+		t.Fatalf("PlaceOrder: %v", err)
+	}
+	if out.OrderID != "ord-1" || out.Status != "live" || !out.Success {
+		t.Fatalf("response: %+v", out)
+	}
+}
+
+func TestPlaceOrder_DefaultOwnerFromAPIKey(t *testing.T) {
+	const apiKey = "550e8400-e29b-41d4-a716-446655440000"
+	t.Setenv("POLYMARKET_API_KEY", apiKey)
+	t.Setenv("POLYMARKET_API_SECRET", "AQIDBA==")
+	t.Setenv("POLYMARKET_PASSPHRASE", "p")
+	t.Setenv("POLYMARKET_ADDRESS", "0x1")
+
+	ref := NewClient()
+	payload := &models.OrderPayload{
+		Maker:         "0xmaker",
+		Signer:        "0xsigner",
+		TokenID:       "token1",
+		MakerAmount:   "1",
+		TakerAmount:   "2",
+		Side:          models.OrderSideBuy,
+		Expiration:    "0",
+		Timestamp:     "123",
+		Signature:     "sig",
+		Salt:          1,
+		SignatureType: 0,
+	}
+	wantReq := models.PlaceOrderRequest{
+		Order:     *payload,
+		Owner:     apiKey,
+		OrderType: models.OrderTypeGTC,
+		DeferExec: false,
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/time", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("1730000999"))
+	})
+	mux.HandleFunc("/order", func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		var got models.PlaceOrderRequest
+		if err := json.Unmarshal(body, &got); err != nil {
+			t.Fatalf("unmarshal body: %v", err)
+		}
+		if got != wantReq {
+			t.Fatalf("request round-trip: got %+v want %+v", got, wantReq)
+		}
+		ts := r.Header.Get("POLY_TIMESTAMP")
+		wantSig := ref.hmacSignature(ts, http.MethodPost, r.URL.Path, string(body))
+		if gotSig := r.Header.Get("POLY_SIGNATURE"); gotSig != wantSig {
+			t.Errorf("POLY_SIGNATURE: got %q want %q", gotSig, wantSig)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true,"orderID":"ord-1","status":"live"}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	c := NewClient(WithBaseURL(srv.URL), WithServerSignedTime(true))
+
+	for _, name := range []string{"empty_string", "whitespace_only"} {
+		t.Run(name, func(t *testing.T) {
+			owner := ""
+			if name == "whitespace_only" {
+				owner = "  \t  "
+			}
+			out, err := c.PlaceOrder(payload, owner, models.OrderTypeGTC)
+			if err != nil {
+				t.Fatalf("PlaceOrder: %v", err)
+			}
+			if out.OrderID != "ord-1" {
+				t.Fatalf("response: %+v", out)
+			}
+		})
+	}
+}
+
+func TestPlaceOrder_ErrWhenOwnerEmptyAndNoAPIKey(t *testing.T) {
+	t.Setenv("POLYMARKET_API_KEY", "")
+	payload := &models.OrderPayload{Maker: "0x1"}
+	c := NewClient()
+	_, err := c.PlaceOrder(payload, "", models.OrderTypeGTC)
+	if err == nil {
+		t.Fatal("expected error when owner and API key are empty")
+	}
+}
+
+func TestCancelOrder(t *testing.T) {
+	t.Setenv("POLYMARKET_API_KEY", "k")
+	t.Setenv("POLYMARKET_API_SECRET", "AQIDBA==")
+	t.Setenv("POLYMARKET_PASSPHRASE", "p")
+	t.Setenv("POLYMARKET_ADDRESS", "0x1")
+
+	ref := NewClient()
+	orderID := "cancel-me-1"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/time", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("1730000999"))
+	})
+	mux.HandleFunc("/order", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Fatalf("CancelOrder: want DELETE, got %s", r.Method)
+		}
+		if r.URL.Path != "/order" {
+			t.Fatalf("CancelOrder: path %q", r.URL.Path)
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		var req models.CancelOrderRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Fatalf("unmarshal body: %v", err)
+		}
+		if req.OrderID != orderID {
+			t.Fatalf("orderID: got %q want %q", req.OrderID, orderID)
+		}
+		if !strings.Contains(string(body), orderID) {
+			t.Fatalf("body should contain order id: %s", body)
+		}
+		ts := r.Header.Get("POLY_TIMESTAMP")
+		wantSig := ref.hmacSignature(ts, http.MethodDelete, r.URL.Path, string(body))
+		if gotSig := r.Header.Get("POLY_SIGNATURE"); gotSig != wantSig {
+			t.Errorf("POLY_SIGNATURE: got %q want %q", gotSig, wantSig)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"canceled":["` + orderID + `"],"not_canceled":{}}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	c := NewClient(WithBaseURL(srv.URL), WithServerSignedTime(true))
+	if err := c.CancelOrder(orderID); err != nil {
+		t.Fatalf("CancelOrder: %v", err)
 	}
 }

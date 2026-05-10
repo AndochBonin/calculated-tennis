@@ -25,7 +25,7 @@ func (c *Client) GetOrderBook(tokenID string) (*models.OrderBook, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("get order book: unexpected status %d", resp.StatusCode)
+		return nil, errUnexpectedHTTP("get order book", resp)
 	}
 
 	var book models.OrderBook
