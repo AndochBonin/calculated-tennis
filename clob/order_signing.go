@@ -34,6 +34,36 @@ const (
 	orderV2TypeString = "Order(uint256 salt,address maker,address signer,uint256 tokenId,uint256 makerAmount,uint256 takerAmount,uint8 side,uint8 signatureType,uint256 timestamp,bytes32 metadata,bytes32 builder)"
 )
 
+// randReadFn is package-local indirection over crypto/rand.Read so tests can
+// simulate read failures without weakening production RNG.
+var randReadFn = rand.Read
+
+// cryptoSignFn mirrors crypto.Sign for tests that need a signing failure path.
+var cryptoSignFn = crypto.Sign
+
+// parseOrderAmountMicroFn parses maker/taker decimal strings from computeAmounts; swappable for tests.
+var parseOrderAmountMicroFn = parseOrderAmountMicroDefault
+
+func parseOrderAmountMicroDefault(makerAmount, takerAmount string) (makerAmt, takerAmt *big.Int, err error) {
+	makerAmt = new(big.Int)
+	if _, ok := makerAmt.SetString(makerAmount, 10); !ok {
+		return nil, nil, fmt.Errorf("makerAmount %q", makerAmount)
+	}
+	takerAmt = new(big.Int)
+	if _, ok := takerAmt.SetString(takerAmount, 10); !ok {
+		return nil, nil, fmt.Errorf("takerAmount %q", takerAmount)
+	}
+	return makerAmt, takerAmt, nil
+}
+
+var (
+	packPoly1271ContentsInputFn = packPoly1271ContentsInputDefault
+	packPoly1271AppDomainSepFn  = packPoly1271AppDomainSepDefault
+)
+
+// abiNewTypeHook mirrors accounts/abi.NewType so tests can force ABI setup failures.
+var abiNewTypeHook = abi.NewType
+
 // Signer signs Polymarket orders using EIP-712.
 type Signer struct {
 	privateKey *ecdsa.PrivateKey
@@ -170,7 +200,7 @@ func (s *Signer) BuildOrder(
 		return nil, fmt.Errorf("hash typed data: %w", err)
 	}
 
-	innerSig, err := crypto.Sign(hash, s.privateKey)
+	innerSig, err := cryptoSignFn(hash, s.privateKey)
 	if err != nil {
 		return nil, fmt.Errorf("sign order: %w", err)
 	}
@@ -181,16 +211,12 @@ func (s *Signer) BuildOrder(
 	if err != nil {
 		return nil, err
 	}
-	makerAmt := new(big.Int)
-	if _, ok := makerAmt.SetString(makerAmount, 10); !ok {
-		return nil, fmt.Errorf("makerAmount %q", makerAmount)
-	}
-	takerAmt := new(big.Int)
-	if _, ok := takerAmt.SetString(takerAmount, 10); !ok {
-		return nil, fmt.Errorf("takerAmount %q", takerAmount)
+	makerAmt, takerAmt, err := parseOrderAmountMicroFn(makerAmount, takerAmount)
+	if err != nil {
+		return nil, err
 	}
 
-	contentsPacked, err := packPoly1271ContentsInput(
+	contentsPacked, err := packPoly1271ContentsInputFn(
 		crypto.Keccak256([]byte(orderV2TypeString)),
 		salt,
 		depositWalletAddr,
@@ -209,7 +235,7 @@ func (s *Signer) BuildOrder(
 	}
 	contentsHash := crypto.Keccak256(contentsPacked)
 
-	appPacked, err := packPoly1271AppDomainSep(ChainID, exchangeAddr)
+	appPacked, err := packPoly1271AppDomainSepFn(ChainID, exchangeAddr)
 	if err != nil {
 		return nil, fmt.Errorf("pack app domain sep: %w", err)
 	}
@@ -258,21 +284,21 @@ func parseAssetIDUint256(s string) (*big.Int, error) {
 	return n, nil
 }
 
-// packPoly1271AppDomainSep matches ExchangeOrderBuilderV2 appDomainSep (keccak256 of abi.encode).
-func packPoly1271AppDomainSep(chainID int, verifyingContract common.Address) ([]byte, error) {
+// packPoly1271AppDomainSepDefault matches ExchangeOrderBuilderV2 appDomainSep (keccak256 of abi.encode).
+func packPoly1271AppDomainSepDefault(chainID int, verifyingContract common.Address) ([]byte, error) {
 	domainTypeHash := crypto.Keccak256([]byte("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"))
 	nameHash := crypto.Keccak256([]byte(ctfExchangeV2DomainName))
 	versionHash := crypto.Keccak256([]byte(ctfExchangeV2DomainVersion))
 
-	tBytes32, err := abi.NewType("bytes32", "", nil)
+	tBytes32, err := abiNewTypeHook("bytes32", "", nil)
 	if err != nil {
 		return nil, err
 	}
-	tUint256, err := abi.NewType("uint256", "", nil)
+	tUint256, err := abiNewTypeHook("uint256", "", nil)
 	if err != nil {
 		return nil, err
 	}
-	tAddr, err := abi.NewType("address", "", nil)
+	tAddr, err := abiNewTypeHook("address", "", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -292,8 +318,8 @@ func packPoly1271AppDomainSep(chainID int, verifyingContract common.Address) ([]
 	)
 }
 
-// packPoly1271ContentsInput returns abi.encode(...) input bytes before keccak (contentsHash).
-func packPoly1271ContentsInput(
+// packPoly1271ContentsInputDefault returns abi.encode(...) input bytes before keccak (contentsHash).
+func packPoly1271ContentsInputDefault(
 	orderTypeHash []byte,
 	salt int64,
 	maker, signer common.Address,
@@ -302,19 +328,19 @@ func packPoly1271ContentsInput(
 	timestampMs int64,
 	metadata, builder common.Hash,
 ) ([]byte, error) {
-	tBytes32, err := abi.NewType("bytes32", "", nil)
+	tBytes32, err := abiNewTypeHook("bytes32", "", nil)
 	if err != nil {
 		return nil, err
 	}
-	tUint256, err := abi.NewType("uint256", "", nil)
+	tUint256, err := abiNewTypeHook("uint256", "", nil)
 	if err != nil {
 		return nil, err
 	}
-	tUint8, err := abi.NewType("uint8", "", nil)
+	tUint8, err := abiNewTypeHook("uint8", "", nil)
 	if err != nil {
 		return nil, err
 	}
-	tAddr, err := abi.NewType("address", "", nil)
+	tAddr, err := abiNewTypeHook("address", "", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -372,7 +398,7 @@ func stripHexPrefix(s string) string {
 
 func randomSalt() (int64, error) {
 	var b [8]byte
-	if _, err := rand.Read(b[:]); err != nil {
+	if _, err := randReadFn(b[:]); err != nil {
 		return 0, fmt.Errorf("random salt: %w", err)
 	}
 	u := binary.BigEndian.Uint64(b[:])

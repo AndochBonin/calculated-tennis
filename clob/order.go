@@ -14,6 +14,9 @@ import (
 	"github.com/AndochBonin/polymarket/models"
 )
 
+// jsonMarshalFn is swappable in tests to exercise marshal error paths (normally unreachable for these structs).
+var jsonMarshalFn = json.Marshal
+
 func (c *Client) GetOrders() (*models.OrdersResponse, error) {
 	req, err := http.NewRequest(http.MethodGet, c.baseURL+"/data/orders", nil)
 	if err != nil {
@@ -87,7 +90,7 @@ func (c *Client) PlaceOrder(payload *models.OrderPayload, owner string, orderTyp
 		DeferExec: false,
 	}
 
-	body, err := json.Marshal(req)
+	body, err := jsonMarshalFn(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshal order: %w", err)
 	}
@@ -126,7 +129,7 @@ func (c *Client) PlaceOrder(payload *models.OrderPayload, owner string, orderTyp
 }
 
 func (c *Client) CancelOrder(orderID string) error {
-	body, err := json.Marshal(models.CancelOrderRequest{OrderID: orderID})
+	body, err := jsonMarshalFn(models.CancelOrderRequest{OrderID: orderID})
 	if err != nil {
 		return fmt.Errorf("marshal cancel order: %w", err)
 	}

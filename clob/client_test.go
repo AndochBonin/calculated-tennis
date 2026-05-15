@@ -104,6 +104,82 @@ func TestWithAddressEmptySkips(t *testing.T) {
 	}
 }
 
+func TestWithDepositWalletTrimsAndSets(t *testing.T) {
+	c := NewClient(WithDepositWallet("  0xdeposit  "))
+	if c.depositWallet != "0xdeposit" {
+		t.Fatalf("depositWallet: got %q", c.depositWallet)
+	}
+	if got := c.DepositWallet(); got != "0xdeposit" {
+		t.Fatalf("DepositWallet(): got %q", got)
+	}
+}
+
+func TestWithDepositWalletEmptySkips(t *testing.T) {
+	t.Setenv("POLYMARKET_DEPOSIT_WALLET", "0xfromenv")
+	c := NewClient(WithDepositWallet("   "))
+	if c.depositWallet != "0xfromenv" {
+		t.Fatalf("expected env deposit wallet unchanged, got %q", c.depositWallet)
+	}
+}
+
+func TestNewClientReadsDepositWalletFromPOLYMARKET_DEPOSIT_WALLET(t *testing.T) {
+	t.Setenv("POLYMARKET_DEPOSIT_WALLET", "  0xpoly  ")
+	t.Setenv("DEPOSIT_WALLET", "0xfallback")
+	c := NewClient()
+	if c.depositWallet != "0xpoly" {
+		t.Fatalf("expected POLYMARKET_DEPOSIT_WALLET (trimmed), got %q", c.depositWallet)
+	}
+}
+
+func TestNewClientFallsBackToDEPOSIT_WALLETWhenPolyUnset(t *testing.T) {
+	t.Setenv("POLYMARKET_DEPOSIT_WALLET", "")
+	t.Setenv("DEPOSIT_WALLET", "  0xfallback  ")
+	c := NewClient()
+	if c.depositWallet != "0xfallback" {
+		t.Fatalf("expected DEPOSIT_WALLET (trimmed), got %q", c.depositWallet)
+	}
+}
+
+func TestNewClientFallsBackToDEPOSIT_WALLETWhenPolyWhitespaceOnly(t *testing.T) {
+	t.Setenv("POLYMARKET_DEPOSIT_WALLET", "   \t  ")
+	t.Setenv("DEPOSIT_WALLET", "0xfallback")
+	c := NewClient()
+	if c.depositWallet != "0xfallback" {
+		t.Fatalf("expected DEPOSIT_WALLET when POLY trimmed empty, got %q", c.depositWallet)
+	}
+}
+
+func TestNewClientDepositWalletEmptyWhenBothEnvUnset(t *testing.T) {
+	t.Setenv("POLYMARKET_DEPOSIT_WALLET", "")
+	t.Setenv("DEPOSIT_WALLET", "")
+	c := NewClient()
+	if c.DepositWallet() != "" {
+		t.Fatalf("expected empty deposit wallet, got %q", c.DepositWallet())
+	}
+}
+
+func TestWithDepositWalletOverridesEnv(t *testing.T) {
+	t.Setenv("POLYMARKET_DEPOSIT_WALLET", "0xenv")
+	t.Setenv("DEPOSIT_WALLET", "0xfallback")
+	c := NewClient(WithDepositWallet("0xoverride"))
+	if c.depositWallet != "0xoverride" {
+		t.Fatalf("expected WithDepositWallet to override env, got %q", c.depositWallet)
+	}
+}
+
+func TestAuthAddressGetter(t *testing.T) {
+	t.Setenv("POLYMARKET_ADDRESS", "  0xfromenv  ")
+	c := NewClient()
+	if got := c.AuthAddress(); got != "0xfromenv" {
+		t.Fatalf("AuthAddress from env: got %q", got)
+	}
+
+	c = NewClient(WithAddress("0xeoa"))
+	if got := c.AuthAddress(); got != "0xeoa" {
+		t.Fatalf("AuthAddress from option: got %q", got)
+	}
+}
+
 func TestWithDataAPIBaseURLTrimsAndSets(t *testing.T) {
 	c := NewClient(WithDataAPIBaseURL("  https://data.example  "))
 	if c.dataAPIBaseURL != "https://data.example" {
