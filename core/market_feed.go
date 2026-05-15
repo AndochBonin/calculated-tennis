@@ -176,7 +176,7 @@ func (marketFeed *MarketFeed) connectLoop() {
 					if metas := marketFeed.subscribers[id]; len(metas) > 0 {
 						name = metas[0].name
 					}
-					slog.Warn("subscribed token",
+					slog.Info("token subscribed",
 						append([]any{"category", marketFeed.category, "name", name}, AppendVerboseIDs("token_id", id)...)...,
 					)
 				}
@@ -263,7 +263,7 @@ func (marketFeed *MarketFeed) dispatch(msg []byte) {
 	}
 
 	if err := json.Unmarshal(msg, &base); err != nil {
-		slog.Debug("error unmarshalling message",
+		slog.Warn("unmarshal failure",
 			"category", marketFeed.category,
 			"message", msg,
 			"err", err,
@@ -402,7 +402,7 @@ func (marketFeed *MarketFeed) Subscribe(tokenID string, name string, ch chan<- a
 				append([]any{"category", marketFeed.category, "name", name, "err", err}, AppendVerboseIDs("token_id", tokenID)...)...,
 			)
 		} else {
-			slog.Warn("subscribed token",
+			slog.Info("token subscribed",
 				append([]any{"category", marketFeed.category, "name", name}, AppendVerboseIDs("token_id", tokenID)...)...,
 			)
 		}

@@ -25,6 +25,8 @@ type Client struct {
 	dataAPIBaseURL string
 	// When true, L2 timestamps use GET /time (same idea as TS ClobClient useServerTime).
 	useServerTime bool
+	// POLYMARKET_DEPOSIT_WALLET (fallback DEPOSIT_WALLET) — Safe / deposit address for EIP-712 TypedDataSign.
+	depositWallet string
 }
 
 type Option func(*Client)
@@ -88,6 +90,15 @@ func WithUserAddress(addr string) Option {
 	}
 }
 
+// WithDepositWallet sets the deposit / Safe address used for order signing (POLYMARKET_DEPOSIT_WALLET).
+func WithDepositWallet(addr string) Option {
+	return func(c *Client) {
+		if trimmed := strings.TrimSpace(addr); trimmed != "" {
+			c.depositWallet = trimmed
+		}
+	}
+}
+
 func NewClient(opts ...Option) *Client {
 	c := &Client{
 		http: &http.Client{},
@@ -104,6 +115,11 @@ func NewClient(opts ...Option) *Client {
 	c.address = strings.TrimSpace(os.Getenv("POLYMARKET_ADDRESS"))
 	c.userAddress = strings.TrimSpace(os.Getenv("POLYMARKET_USER_ADDRESS"))
 	c.dataAPIBaseURL = strings.TrimSpace(os.Getenv("POLYMARKET_DATA_API_BASE_URL"))
+	if dw := strings.TrimSpace(os.Getenv("POLYMARKET_DEPOSIT_WALLET")); dw != "" {
+		c.depositWallet = dw
+	} else if dw := strings.TrimSpace(os.Getenv("DEPOSIT_WALLET")); dw != "" {
+		c.depositWallet = dw
+	}
 
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("POLYMARKET_CLOB_SERVER_TIME"))) {
 	case "1", "true", "yes":
@@ -115,6 +131,16 @@ func NewClient(opts ...Option) *Client {
 	}
 
 	return c
+}
+
+// AuthAddress returns the address sent as POLY_ADDRESS on L2 requests (expected API key owner).
+func (c *Client) AuthAddress() string {
+	return c.address
+}
+
+// DepositWallet returns the configured deposit / Safe address used for order maker and EIP-712 domain.
+func (c *Client) DepositWallet() string {
+	return c.depositWallet
 }
 
 func (c *Client) fetchClobServerUnix() int64 {

@@ -204,7 +204,7 @@ func startATPTraders(
 	for _, m := range markets {
 		tr := newATPTrader(gammaClient, clobClient, marketFeed, sportsFeed, m)
 		if err := tr.Start(ctx); err != nil {
-			slog.Warn("skip market",
+			slog.Error("skip market",
 				append([]any{"err", err}, core.AppendVerboseIDs("condition_id", m.ConditionID)...)...)
 			continue
 		}
@@ -297,7 +297,7 @@ func main() {
 		os.Exit(1)
 	}
 	filtered := core.FilterATPMarkets(markets)
-	slog.Warn("ATP markets after filter", "filtered", len(filtered), "total", len(markets))
+	slog.Info("ATP markets after filter", "filtered", len(filtered), "total", len(markets))
 
 	atpTraders, startedConditionIDs := startATPTraders(ctx, gammaClient, clobClient, marketFeed, sportsFeed, filtered)
 

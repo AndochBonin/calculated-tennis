@@ -293,6 +293,7 @@ func TestPlaceOrder(t *testing.T) {
 		Order:     *payload,
 		Owner:     "0xowner",
 		OrderType: models.OrderTypeGTC,
+		PostOnly:  false,
 		DeferExec: false,
 	}
 
@@ -369,6 +370,7 @@ func TestPlaceOrder_DefaultOwnerFromAPIKey(t *testing.T) {
 		Order:     *payload,
 		Owner:     apiKey,
 		OrderType: models.OrderTypeGTC,
+		PostOnly:  false,
 		DeferExec: false,
 	}
 

@@ -78,6 +78,7 @@ type PlaceOrderRequest struct {
 	Order     OrderPayload `json:"order"`
 	Owner     string       `json:"owner"`
 	OrderType OrderType    `json:"orderType"`
+	PostOnly  bool         `json:"postOnly"`
 	DeferExec bool         `json:"deferExec"`
 }
 

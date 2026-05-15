@@ -127,7 +127,7 @@ func (t *ATPTrader) Start(ctx context.Context) error {
 		return fmt.Errorf("parse outcomes for %s: %w", market.ConditionID, err)
 	}
 
-	slog.Warn("start ATP market",
+	slog.Info("start ATP market",
 		append([]any{
 			"slug", market.Slug,
 			"tokens", len(tokenIDs),
@@ -196,7 +196,7 @@ func (t *ATPTrader) handleMarket(tokenID string, name string, event any) {
 				continue
 			}
 			// calculate what to trade signal to send
-			slog.Info("price event",
+			slog.Debug("price event",
 				append([]any{
 					"name", name,
 					"side", change.Side,
@@ -205,7 +205,7 @@ func (t *ATPTrader) handleMarket(tokenID string, name string, event any) {
 			)
 		}
 	case models.BookEvent:
-		slog.Info("book event",
+		slog.Debug("book event",
 			append([]any{
 				"name", name,
 				"bids", len(e.Bids),
@@ -216,7 +216,7 @@ func (t *ATPTrader) handleMarket(tokenID string, name string, event any) {
 		if !strings.EqualFold(e.Market, t.market.ConditionID) {
 			return
 		}
-		slog.Warn("market resolved, stopping ATP trader",
+		slog.Info("market resolved, stopping ATP trader",
 			append([]any{
 				"slug", t.market.Slug,
 				"winning_asset_id", e.WinningAssetID,
@@ -236,7 +236,7 @@ func (t *ATPTrader) handleMarket(tokenID string, name string, event any) {
 			}, AppendVerboseIDs("token_id", tokenID)...)...,
 		)
 	default:
-		slog.Error("unknown event type",
+		slog.Warn("unknown event type",
 			append([]any{
 				"name", name,
 				"event_type", fmt.Sprintf("%T", e),
@@ -264,7 +264,7 @@ func (t *ATPTrader) listenSports(ctx context.Context, gameID int64, name string,
 func (t *ATPTrader) handleSports(gameID int64, name string, event any) {
 	switch e := event.(type) {
 	case models.SportsEvent:
-		slog.Warn("sport event",
+		slog.Debug("sport event",
 			[]any{
 				"name", name,
 				"league", e.LeagueAbbreviation,
@@ -274,7 +274,7 @@ func (t *ATPTrader) handleSports(gameID int64, name string, event any) {
 	case error:
 		slog.Error("sports error event", "name", name, "err", e, "game_id", gameID)
 	default:
-		slog.Error("unknown sports event type", "name", name, "event_type", fmt.Sprintf("%T", e), "game_id", gameID)
+		slog.Warn("unknown sports event type", "name", name, "event_type", fmt.Sprintf("%T", e), "game_id", gameID)
 	}
 }
 
@@ -282,13 +282,13 @@ func (t *ATPTrader) Stop() {
 	t.stopOnce.Do(func() {
 		for _, sub := range t.marketSubs {
 			if err := t.marketFeed.Unsubscribe(sub.tokenID, sub.ch); err != nil {
-				slog.Warn("failed to unsubscribe",
+				slog.Warn("token unsubscribe failed",
 					append([]any{
 						"err", err,
 					}, AppendVerboseIDs("token_id", sub.tokenID)...)...,
 				)
 			} else {
-				slog.Warn("unsubscribed",
+				slog.Info("token unsubscribed",
 					AppendVerboseIDs("token_id", sub.tokenID)...,
 				)
 			}

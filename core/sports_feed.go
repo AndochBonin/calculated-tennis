@@ -200,7 +200,7 @@ func (sportsFeed *SportsFeed) readLoop(conn *websocket.Conn) error {
 func (sportsFeed *SportsFeed) dispatch(msg []byte) {
 	var event models.SportsEvent
 	if err := json.Unmarshal(msg, &event); err != nil {
-		slog.Debug("error unmarshalling sports event", "message", string(msg), "err", err)
+		slog.Warn("unmarshal failure", "message", string(msg), "err", err)
 		return
 	}
 	if event.GameID == 0 {
@@ -240,7 +240,7 @@ func (sportsFeed *SportsFeed) Subscribe(gameID int64, name string, ch chan<- any
 	sportsFeed.mu.Lock()
 	defer sportsFeed.mu.Unlock()
 	sportsFeed.subscribers[gameID] = append(sportsFeed.subscribers[gameID], sportsSubscriberMeta{name: name, ch: ch})
-	slog.Warn("sports subscribed", "name", name, "game_id", strconv.FormatInt(gameID, 10))
+	slog.Info("sports subscribed", "name", name, "game_id", strconv.FormatInt(gameID, 10))
 }
 
 func (sportsFeed *SportsFeed) Unsubscribe(gameID int64, ch chan<- any) {
