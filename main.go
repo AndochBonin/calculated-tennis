@@ -14,6 +14,7 @@ import (
 	"github.com/AndochBonin/polymarket/core"
 	"github.com/AndochBonin/polymarket/gamma"
 	"github.com/AndochBonin/polymarket/models"
+	"github.com/AndochBonin/polymarket/secrets"
 	"github.com/joho/godotenv"
 )
 
@@ -275,6 +276,7 @@ func main() {
 	_ = godotenv.Load()
 	parseVerboseFlag()
 	setupLogging()
+	secrets.MustLoadFromEnvIfConfigured(context.Background(), slog.Default())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

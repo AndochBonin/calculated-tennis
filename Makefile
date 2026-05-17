@@ -1,8 +1,63 @@
 COVERAGE_THRESHOLD ?= 90
 SHELL := /bin/zsh
 
+# Build linux/amd64 binary and upload to S3 (after terraform apply).
+# Required env: S3_ARTIFACT_BUCKET, S3_ARTIFACT_KEY (terraform outputs artifact_bucket, artifact_key).
+# Optional env: AWS_REGION, AWS_PROFILE (passed to aws s3 cp when set).
+# Optional make var: PUSH_BINARY_OUT (local path, default dist/polymarket-linux-amd64).
+#
+# Example:
+#   S3_ARTIFACT_BUCKET="$$(terraform -chdir=infra/terraform output -raw artifact_bucket)" \
+#   S3_ARTIFACT_KEY="$$(terraform -chdir=infra/terraform output -raw artifact_key)" \
+#   AWS_REGION=eu-west-1 \
+#   make push-binary
+PUSH_BINARY_OUT ?= dist/polymarket-linux-amd64
+
+.PHONY: push-binary
+push-binary:
+	@if [ -z "$$S3_ARTIFACT_BUCKET" ] || [ -z "$$S3_ARTIFACT_KEY" ]; then \
+		echo "S3_ARTIFACT_BUCKET and S3_ARTIFACT_KEY are required (see terraform outputs artifact_bucket, artifact_key)"; \
+		exit 2; \
+	fi
+	@mkdir -p dist
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o $(PUSH_BINARY_OUT) .
+	@set -e; \
+	aws_args=(); \
+	[ -n "$${AWS_REGION:-}" ] && aws_args+=(--region "$$AWS_REGION"); \
+	[ -n "$${AWS_PROFILE:-}" ] && aws_args+=(--profile "$$AWS_PROFILE"); \
+	aws s3 cp "$(PUSH_BINARY_OUT)" "s3://$$S3_ARTIFACT_BUCKET/$$S3_ARTIFACT_KEY" "$${aws_args[@]}"
+
 run:
 	go run .
+
+up:
+	docker compose up -d --build
+
+down:
+	docker compose down
+
+# Seed LocalStack secret from gitignored secret.json (create once per dev machine).
+localstack-init-secret:
+	@if [ ! -f secret.json ]; then \
+		echo "secret.json not found; create it from docs/aws-secrets-manager.md"; \
+		exit 2; \
+	fi
+	AWS_ENDPOINT_URL=http://localhost:4566 \
+	AWS_ACCESS_KEY_ID=test \
+	AWS_SECRET_ACCESS_KEY=test \
+	AWS_REGION=eu-west-1 \
+	AWS_DEFAULT_REGION=eu-west-1 \
+	aws secretsmanager create-secret \
+		--name polymarket/dev \
+		--secret-string file://secret.json \
+	|| AWS_ENDPOINT_URL=http://localhost:4566 \
+	AWS_ACCESS_KEY_ID=test \
+	AWS_SECRET_ACCESS_KEY=test \
+	AWS_REGION=eu-west-1 \
+	AWS_DEFAULT_REGION=eu-west-1 \
+	aws secretsmanager put-secret-value \
+		--secret-id polymarket/dev \
+		--secret-string file://secret.json
 
 # Live CLOB probe: POLYMARKET_API_KEY, POLYMARKET_API_SECRET, POLYMARKET_PASSPHRASE,
 # POLYMARKET_ADDRESS (same EOA as METAMASK_KEY in generate_creds).

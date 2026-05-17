@@ -14,11 +14,13 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
 
 	"github.com/AndochBonin/polymarket/clob"
 	"github.com/AndochBonin/polymarket/models"
+	"github.com/AndochBonin/polymarket/secrets"
 	"github.com/joho/godotenv"
 )
 
@@ -39,6 +41,7 @@ func exitRun() int {
 	_ = godotenv.Load()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	secrets.MustLoadFromEnvIfConfigured(context.Background(), log)
 
 	if err := runProbe(log, clob.NewClient()); err != nil {
 		return 1

@@ -22,6 +22,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -30,6 +31,7 @@ import (
 
 	"github.com/AndochBonin/polymarket/clob"
 	"github.com/AndochBonin/polymarket/models"
+	"github.com/AndochBonin/polymarket/secrets"
 	"github.com/joho/godotenv"
 	"github.com/shopspring/decimal"
 )
@@ -42,6 +44,7 @@ func exitRun() int {
 	_ = godotenv.Load()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	secrets.MustLoadFromEnvIfConfigured(context.Background(), log)
 
 	priceStr := flag.String("price", "", "limit price (decimal string, required)")
 	flag.Parse()

@@ -1,8 +1,12 @@
 import os
+
 from dotenv import load_dotenv
 from py_clob_client_v2 import ClobClient
 
+from load_secrets import must_load_from_env_if_configured
+
 load_dotenv()
+must_load_from_env_if_configured()
 
 metamask_key = os.getenv("METAMASK_KEY")
 

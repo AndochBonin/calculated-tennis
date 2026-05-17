@@ -1,2 +1,10 @@
 .env
+secret.json
 *.out
+__pycache__/
+dist/
+*.hcl
+.terraform/
+*.tfstate
+*.tfstate.*
+.DS_Store
