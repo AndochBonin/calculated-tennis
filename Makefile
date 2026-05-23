@@ -78,6 +78,15 @@ place-order:
 	fi
 	go run ./cmd/placeorder -price=$(PRICE) $(TOKEN)
 
+# Tennis Abstract player stats (live fetch; optional Redis cache via REDIS_ADDR / REDIS_URL).
+# Usage: make get-stats PLAYER="jannik sinner"
+get-stats:
+	@if [ -z "$(PLAYER)" ]; then \
+		echo 'usage: make get-stats PLAYER="full name"'; \
+		exit 2; \
+	fi
+	go run ./cmd/getstats -player="$(PLAYER)"
+
 venv:
 	@source .venv/bin/activate; $$SHELL
 
