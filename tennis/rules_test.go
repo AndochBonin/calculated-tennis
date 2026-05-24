@@ -477,6 +477,142 @@ func TestMatch_tiebreakServeRotation(t *testing.T) {
 	}
 }
 
+func reachGrandSlamMenDecidingSet(t *testing.T, m *Match) {
+	t.Helper()
+	mustWinGames(t, m, A, 6)
+	mustWinGames(t, m, B, 6)
+	mustWinGames(t, m, A, 6)
+	mustWinGames(t, m, B, 6)
+	a, b := m.SetsWon()
+	if a != 2 || b != 2 {
+		t.Fatalf("sets won = %d-%d, want 2-2 before deciding set", a, b)
+	}
+}
+
+func reachGrandSlamWomenDecidingSet(t *testing.T, m *Match) {
+	t.Helper()
+	mustWinGames(t, m, A, 6)
+	mustWinGames(t, m, B, 6)
+	a, b := m.SetsWon()
+	if a != 1 || b != 1 {
+		t.Fatalf("sets won = %d-%d, want 1-1 before deciding set", a, b)
+	}
+}
+
+func TestGrandSlam_tiebreakPoints(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		format     MatchFormat
+		setup      func(t *testing.T, m *Match)
+		playTB     func(t *testing.T, m *Match)
+		wantTB     [2]int // if set still in progress
+		wantResult *SetResult
+	}{
+		{
+			name:   "non-deciding set uses 7-point tiebreak",
+			format: GrandSlamMenFormat(),
+			setup:  func(t *testing.T, m *Match) {},
+			playTB: func(t *testing.T, m *Match) {
+				gamesToSixSix(t, m)
+				mustWinTBPoints(t, m, B, 5)
+				mustWinTBPoints(t, m, A, 7)
+			},
+			wantResult: &SetResult{GamesA: 7, GamesB: 6},
+		},
+		{
+			name:   "men deciding set 7-5 does not end",
+			format: GrandSlamMenFormat(),
+			setup:  reachGrandSlamMenDecidingSet,
+			playTB: func(t *testing.T, m *Match) {
+				gamesToSixSix(t, m)
+				mustWinTBPoints(t, m, B, 5)
+				mustWinTBPoints(t, m, A, 7)
+			},
+			wantTB: [2]int{7, 5},
+		},
+		{
+			name:   "men deciding set 10-8 ends",
+			format: GrandSlamMenFormat(),
+			setup:  reachGrandSlamMenDecidingSet,
+			playTB: func(t *testing.T, m *Match) {
+				gamesToSixSix(t, m)
+				mustWinTBPoints(t, m, B, 5)
+				mustWinTBPoints(t, m, A, 7)
+				mustWinTBPoints(t, m, B, 2)
+				mustWinTBPoints(t, m, A, 3)
+			},
+			wantResult: &SetResult{GamesA: 7, GamesB: 6},
+		},
+		{
+			name:   "women deciding set 7-5 does not end",
+			format: GrandSlamWomenFormat(),
+			setup:  reachGrandSlamWomenDecidingSet,
+			playTB: func(t *testing.T, m *Match) {
+				gamesToSixSix(t, m)
+				mustWinTBPoints(t, m, B, 5)
+				mustWinTBPoints(t, m, A, 7)
+			},
+			wantTB: [2]int{7, 5},
+		},
+		{
+			name:   "women deciding set 10-8 ends",
+			format: GrandSlamWomenFormat(),
+			setup:  reachGrandSlamWomenDecidingSet,
+			playTB: func(t *testing.T, m *Match) {
+				gamesToSixSix(t, m)
+				mustWinTBPoints(t, m, B, 5)
+				mustWinTBPoints(t, m, A, 7)
+				mustWinTBPoints(t, m, B, 2)
+				mustWinTBPoints(t, m, A, 3)
+			},
+			wantResult: &SetResult{GamesA: 7, GamesB: 6},
+		},
+		{
+			name:   "default format still uses 7-point tiebreak in any set",
+			format: DefaultFormat(),
+			setup:  func(t *testing.T, m *Match) {},
+			playTB: func(t *testing.T, m *Match) {
+				gamesToSixSix(t, m)
+				mustWinTBPoints(t, m, B, 5)
+				mustWinTBPoints(t, m, A, 7)
+			},
+			wantResult: &SetResult{GamesA: 7, GamesB: 6},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := NewMatch(A, tt.format)
+			tt.setup(t, m)
+			tt.playTB(t, m)
+
+			if tt.wantResult != nil {
+				if len(m.CompletedSets) == 0 {
+					t.Fatal("expected set to complete")
+				}
+				got := m.CompletedSets[len(m.CompletedSets)-1]
+				if got != *tt.wantResult {
+					t.Fatalf("set result = %+v, want %+v", got, *tt.wantResult)
+				}
+				if m.Phase() != Regular && !m.Done {
+					t.Fatalf("phase = %v, want Regular or match done", m.Phase())
+				}
+			} else {
+				if m.Phase() != Tiebreak {
+					t.Fatalf("phase = %v, want Tiebreak", m.Phase())
+				}
+				a, b := m.TiebreakPoints()
+				if a != tt.wantTB[0] || b != tt.wantTB[1] {
+					t.Fatalf("tiebreak points = %d-%d, want %d-%d", a, b, tt.wantTB[0], tt.wantTB[1])
+				}
+			}
+		})
+	}
+}
+
 func TestIllegalTransitions(t *testing.T) {
 	t.Parallel()
 

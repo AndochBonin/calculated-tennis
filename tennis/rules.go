@@ -95,6 +95,18 @@ func (m *Match) TiebreakPoints() (a, b int) {
 	return m.Current.TiebreakPoints[0], m.Current.TiebreakPoints[1]
 }
 
+func (m *Match) isDecidingSet() bool {
+	need := m.Format.SetsToWin - 1
+	return m.setsWon[0] == need && m.setsWon[1] == need
+}
+
+func (m *Match) tiebreakPointsToWin() int {
+	if m.Format.FinalSetTiebreakPointsToWin > 0 && m.isDecidingSet() {
+		return m.Format.FinalSetTiebreakPointsToWin
+	}
+	return m.Format.TiebreakPointsToWin
+}
+
 // WinTiebreakPoint records that winner won the current tiebreak point.
 func (m *Match) WinTiebreakPoint(winner Player) error {
 	if m.Done {
@@ -112,7 +124,7 @@ func (m *Match) WinTiebreakPoint(winner Player) error {
 	winnerPts := m.Current.TiebreakPoints[w]
 	loserPts := m.Current.TiebreakPoints[l]
 
-	if winnerPts >= m.Format.TiebreakPointsToWin && winnerPts-loserPts >= m.Format.TiebreakPointMargin {
+	if winnerPts >= m.tiebreakPointsToWin() && winnerPts-loserPts >= m.Format.TiebreakPointMargin {
 		m.Current.Games[w] = m.Format.TiebreakAtGamesEach + 1
 		m.Current.Games[l] = m.Format.TiebreakAtGamesEach
 		m.server = m.Current.FirstServerOfTiebreak // this is so the next set's first game server is the one who RECEIVED the first point in the tiebreak
