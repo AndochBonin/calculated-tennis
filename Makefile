@@ -70,22 +70,16 @@ live-clob:
 # Place a 1-share BUY GTC limit order on the live CLOB (real funds / real API).
 # Same env as live-clob, plus a private key for EIP-712 signing:
 # POLYMARKET_PRIVATE_KEY (preferred) or METAMASK_KEY.
-# Usage: make place-order PRICE=0.50 TOKEN=<token_id>
+# Usage: make place-order
+# Optional: make place-order PRICE=0.50 TOKEN=<token_id>
 place-order:
-	@if [ -z "$(PRICE)" ] || [ -z "$(TOKEN)" ]; then \
-		echo "usage: make place-order PRICE=<decimal> TOKEN=<token_id>"; \
-		exit 2; \
-	fi
-	go run ./cmd/placeorder -price=$(PRICE) $(TOKEN)
+	go run ./cmd/placeorder $(if $(PRICE),-price=$(PRICE),) $(TOKEN)
 
 # Tennis Abstract player stats (live fetch; optional Redis cache via REDIS_ADDR / REDIS_URL).
-# Usage: make get-stats PLAYER="jannik sinner"
+# Usage: make get-stats
+# Optional: make get-stats PLAYER="jannik sinner"
 get-stats:
-	@if [ -z "$(PLAYER)" ]; then \
-		echo 'usage: make get-stats PLAYER="full name"'; \
-		exit 2; \
-	fi
-	go run ./cmd/getstats -player="$(PLAYER)"
+	go run ./cmd/getstats $(if $(PLAYER),-player="$(PLAYER)",)
 
 venv:
 	@source .venv/bin/activate; $$SHELL

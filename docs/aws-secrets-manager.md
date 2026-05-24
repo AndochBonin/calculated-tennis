@@ -161,7 +161,7 @@ export AWS_DEFAULT_REGION=us-east-1
 export POLYMARKET_SECRETS_MANAGER_SECRET_ID=polymarket/dev
 
 make live-clob
-# or: go run . ; make place-order PRICE=0.50 TOKEN=... ; make creds
+# or: go run . ; make place-order ; make creds
 ```
 
 Keep non-sensitive settings in `.env` (e.g. `POLYMARKET_CLOB_BASE_URL`).

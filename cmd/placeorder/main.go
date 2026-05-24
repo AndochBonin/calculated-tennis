@@ -2,11 +2,15 @@
 //
 // Run (from repo root, with credentials in .env or the environment):
 //
+//	go run ./cmd/placeorder
 //	go run ./cmd/placeorder -price=0.50 <token_id>
 //
+// Or: make place-order
+// Or: make place-order PRICE=0.50 TOKEN=<token_id>
+//
 // Arguments:
-//   - token_id: required positional — CLOB outcome token id (asset id).
-//   - -price: required — limit price as a decimal string (must match book tick size).
+//   - token_id: CLOB outcome token id (asset id); positional, or prompted when omitted on a TTY.
+//   - -price: limit price as a decimal string (must match book tick size); flag or prompted when omitted on a TTY.
 //
 // Fixed order shape: 5 shares (typical minimum), BUY, GTC, expiration 0.
 //
@@ -22,7 +26,9 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -30,11 +36,14 @@ import (
 	"strings"
 
 	"github.com/AndochBonin/polymarket/clob"
+	"github.com/AndochBonin/polymarket/internal/prompt"
 	"github.com/AndochBonin/polymarket/models"
 	"github.com/AndochBonin/polymarket/secrets"
 	"github.com/joho/godotenv"
 	"github.com/shopspring/decimal"
 )
+
+var errUsage = errors.New("usage")
 
 func main() {
 	os.Exit(exitRun())
@@ -46,27 +55,21 @@ func exitRun() int {
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	secrets.MustLoadFromEnvIfConfigured(context.Background(), log)
 
-	priceStr := flag.String("price", "", "limit price (decimal string, required)")
+	priceFlag := flag.String("price", "", "limit price (decimal string)")
 	flag.Parse()
 
-	args := flag.Args()
-	if len(args) != 1 {
-		log.Error("usage", "msg", "exactly one positional argument required: token_id")
-		fmt.Fprintf(os.Stderr, "usage: %s -price=<decimal> <token_id>\n", os.Args[0])
-		return 2
-	}
-	tokenID := strings.TrimSpace(args[0])
-	if tokenID == "" {
-		log.Error("token_id", "msg", "empty")
-		return 2
-	}
-	if strings.TrimSpace(*priceStr) == "" {
-		log.Error("price", "msg", "-price is required")
-		fmt.Fprintf(os.Stderr, "usage: %s -price=<decimal> <token_id>\n", os.Args[0])
-		return 2
+	tokenID, priceStr, err := resolveInputs(os.Stdin, flag.Args(), *priceFlag, prompt.IsInteractive)
+	if err != nil {
+		if errors.Is(err, errUsage) {
+			log.Error("usage", "msg", "price and token_id required")
+			fmt.Fprintf(os.Stderr, "usage: %s -price=<decimal> <token_id>\n", os.Args[0])
+			return 2
+		}
+		log.Error("input", "err", err)
+		return 1
 	}
 
-	price, err := decimal.NewFromString(strings.TrimSpace(*priceStr))
+	price, err := decimal.NewFromString(priceStr)
 	if err != nil {
 		log.Error("parse price", "err", err)
 		return 1
@@ -128,6 +131,37 @@ func exitRun() int {
 		"signer", signer.Address(),
 	)
 	return 0
+}
+
+func resolveInputs(stdin *os.File, args []string, priceFlag string, interactive func(*os.File) bool) (tokenID, priceStr string, err error) {
+	if len(args) > 1 {
+		return "", "", errUsage
+	}
+	if len(args) == 1 {
+		tokenID = strings.TrimSpace(args[0])
+	}
+	priceStr = strings.TrimSpace(priceFlag)
+
+	if (tokenID == "" || priceStr == "") && interactive(stdin) {
+		br := bufio.NewReader(stdin)
+		if priceStr == "" {
+			priceStr, err = prompt.ReadLineFrom(os.Stderr, br, "Limit price (decimal): ")
+			if err != nil {
+				return "", "", err
+			}
+		}
+		if tokenID == "" {
+			tokenID, err = prompt.ReadLineFrom(os.Stderr, br, "Token ID: ")
+			if err != nil {
+				return "", "", err
+			}
+		}
+	}
+
+	if tokenID == "" || priceStr == "" {
+		return "", "", errUsage
+	}
+	return tokenID, priceStr, nil
 }
 
 func privateKeyFromEnv() (string, error) {
