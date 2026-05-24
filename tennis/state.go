@@ -48,3 +48,25 @@ func NewMatch(firstServer Player, format ...MatchFormat) *Match {
 		server:      firstServer,
 	}
 }
+
+// Clone returns a deep copy of m. CompletedSets is copied into a new slice;
+// Winner, when set, points at an independent Player value.
+func (m *Match) Clone() Match {
+	c := Match{
+		Format:      m.Format,
+		FirstServer: m.FirstServer,
+		setsWon:     m.setsWon,
+		Current:     m.Current,
+		server:      m.server,
+		Done:        m.Done,
+	}
+	if len(m.CompletedSets) > 0 {
+		c.CompletedSets = make([]SetResult, len(m.CompletedSets))
+		copy(c.CompletedSets, m.CompletedSets)
+	}
+	if m.Winner != nil {
+		w := *m.Winner
+		c.Winner = &w
+	}
+	return c
+}

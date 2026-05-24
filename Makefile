@@ -81,6 +81,16 @@ place-order:
 get-stats:
 	go run ./cmd/getstats $(if $(PLAYER),-player="$(PLAYER)",)
 
+# Monte Carlo match win projection (Tennis Abstract hold/break; interactive on TTY).
+# Usage: make sim-match
+# Optional: make sim-match PLAYER_A="..." PLAYER_B="..." FORMAT=atp ALPHA=2.5 SIMS=10000
+sim-match:
+	go run ./cmd/simmatch $(if $(PLAYER_A),-player-a="$(PLAYER_A)",) \
+		$(if $(PLAYER_B),-player-b="$(PLAYER_B)",) \
+		$(if $(FORMAT),-format=$(FORMAT),) \
+		$(if $(ALPHA),-alpha=$(ALPHA),) \
+		$(if $(SIMS),-sims=$(SIMS),)
+
 venv:
 	@source .venv/bin/activate; $$SHELL
 

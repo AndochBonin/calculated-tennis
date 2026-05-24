@@ -36,3 +36,81 @@ func TestNewMatch_customFormat(t *testing.T) {
 		t.Fatalf("FirstServer/Server = %v/%v, want B", m.FirstServer, m.Server())
 	}
 }
+
+func TestMatch_Clone_partialMatch(t *testing.T) {
+	t.Parallel()
+
+	m := NewMatch(A)
+	for range 5 {
+		if err := m.WinGame(A); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := m.WinGame(B); err != nil {
+		t.Fatal(err)
+	}
+
+	c := m.Clone()
+	if c.Server() != m.Server() {
+		t.Fatalf("Server = %v, want %v", c.Server(), m.Server())
+	}
+	if c.Phase() != m.Phase() {
+		t.Fatalf("Phase = %v, want %v", c.Phase(), m.Phase())
+	}
+	ga, gb := c.CurrentSetGames()
+	wantA, wantB := m.CurrentSetGames()
+	if ga != wantA || gb != wantB {
+		t.Fatalf("CurrentSetGames = %d-%d, want %d-%d", ga, gb, wantA, wantB)
+	}
+}
+
+func TestMatch_Clone_isolatedFromMutations(t *testing.T) {
+	t.Parallel()
+
+	m := NewMatch(A)
+	c := m.Clone()
+
+	if err := c.WinGame(A); err != nil {
+		t.Fatal(err)
+	}
+	a, b := m.CurrentSetGames()
+	if a != 0 || b != 0 {
+		t.Fatalf("original games = %d-%d after clone mutation, want 0-0", a, b)
+	}
+}
+
+func TestMatch_Clone_completedSetsAndWinner(t *testing.T) {
+	t.Parallel()
+
+	fmt := DefaultFormat()
+	fmt.SetsToWin = 3
+
+	m := NewMatch(A, fmt)
+	mustWinGames(t, m, B, 4)
+	mustWinGames(t, m, A, 6)
+
+	c := m.Clone()
+	if len(c.CompletedSets) != 1 || len(m.CompletedSets) != 1 {
+		t.Fatalf("CompletedSets len = %d/%d, want 1/1", len(c.CompletedSets), len(m.CompletedSets))
+	}
+	if &c.CompletedSets[0] == &m.CompletedSets[0] {
+		t.Fatal("CompletedSets should not share backing array")
+	}
+	if c.CompletedSets[0] != m.CompletedSets[0] {
+		t.Fatalf("CompletedSets[0] = %+v, want %+v", c.CompletedSets[0], m.CompletedSets[0])
+	}
+
+	for range 2 {
+		mustWinGames(t, &c, B, 4)
+		mustWinGames(t, &c, A, 6)
+	}
+	if !c.Done || c.Winner == nil || *c.Winner != A {
+		t.Fatalf("clone Done=%v Winner=%v, want complete with A", c.Done, c.Winner)
+	}
+	if m.Done || m.Winner != nil {
+		t.Fatal("original match should still be in progress")
+	}
+	if c.Winner == m.Winner {
+		t.Fatal("Winner pointer should not be shared")
+	}
+}
