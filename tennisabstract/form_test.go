@@ -24,6 +24,56 @@ func medvedevStats(t *testing.T) models.PlayerStats {
 	return stats
 }
 
+func TestSeasonHoldBreak_MedvedevFixture(t *testing.T) {
+	t.Parallel()
+
+	stats := medvedevStats(t)
+	hold, brk, err := SeasonHoldBreak(stats, 2024)
+	if err != nil {
+		t.Fatalf("SeasonHoldBreak: %v", err)
+	}
+	// 2024 tour row from testdata/player_medvedev.html: Hold 80.1%, Break 27.0%.
+	wantHold, wantBreak := 0.801, 0.27
+	if math.Abs(hold-wantHold) > 1e-9 {
+		t.Fatalf("hold = %v, want %v", hold, wantHold)
+	}
+	if math.Abs(brk-wantBreak) > 1e-9 {
+		t.Fatalf("break = %v, want %v", brk, wantBreak)
+	}
+}
+
+func TestSeasonHoldBreak_seasonBlendLowMatches(t *testing.T) {
+	t.Parallel()
+
+	stats := models.PlayerStats{
+		TourLevelSeasons: []models.TourLevelSeason{
+			{Year: 2024, Matches: 10, HoldPct: 0.90, BreakPct: 0.10, DR: 1.20},
+			{Year: 2023, Matches: 50, HoldPct: 0.70, BreakPct: 0.30, DR: 1.00},
+		},
+	}
+	hold, brk, err := SeasonHoldBreak(stats, 2024)
+	if err != nil {
+		t.Fatalf("SeasonHoldBreak: %v", err)
+	}
+	wantH := 10.0/60*0.90 + 50.0/60*0.70
+	wantB := 10.0/60*0.10 + 50.0/60*0.30
+	if math.Abs(hold-wantH) > 1e-9 {
+		t.Fatalf("hold = %v, want %v", hold, wantH)
+	}
+	if math.Abs(brk-wantB) > 1e-9 {
+		t.Fatalf("break = %v, want %v", brk, wantB)
+	}
+}
+
+func TestSeasonHoldBreak_noSeasonData(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := SeasonHoldBreak(models.PlayerStats{}, 2024)
+	if !errors.Is(err, ErrNoSeasonData) {
+		t.Fatalf("err = %v, want ErrNoSeasonData", err)
+	}
+}
+
 func TestAdjustedHoldBreak_MedvedevFixture(t *testing.T) {
 	t.Parallel()
 

@@ -73,6 +73,17 @@ place-order:
 get-stats:
 	go run ./cmd/getstats $(if $(PLAYER),-player="$(PLAYER)",)
 
+# Build calibration cache: slug → 2024 hold/break from matches CSV (optional Redis cache).
+fetch-rates:
+	go run ./cmd/fetchrates $(if $(MATCHES),-matches=$(MATCHES),) \
+		$(if $(OUT),-out=$(OUT),) \
+		$(if $(MERGE),-merge=true,)
+
+# Per-surface alpha grid on 2025 test matches (5000 sims, alpha 1–50). Fetches rates if missing.
+calibrate-alpha:
+	@test -f tennisabstract/testdata/player_rates_2024.json || $(MAKE) fetch-rates
+	go run ./cmd/calibratealpha
+
 # Monte Carlo match win projection (Tennis Abstract hold/break; interactive on TTY).
 sim:
 	go run ./cmd/simmatch $(if $(PLAYER_A),-player-a="$(PLAYER_A)",) \

@@ -57,6 +57,32 @@ type AdjustedRates struct {
 	SeasonMatches     int
 }
 
+// SeasonHoldBreak returns raw hold and break for a calendar year using the same
+// tour/challenger blend as live season baseline (buildEffectiveCurrentSeason) and,
+// when the year has fewer than MinSeasonMatches, a weighted blend with the prior
+// tour year. Recent-form adjustment is not applied.
+func SeasonHoldBreak(stats models.PlayerStats, year int) (hold, breakPct float64, err error) {
+	minMatches := positiveIntFromEnv(formMinSeasonMatchesEnv, defaultMinSeasonMatches)
+	chalWeight := positiveFloatFromEnv(formChallengerWeightEnv, defaultChallengerWeight)
+
+	curr, matches, ok := buildEffectiveCurrentSeason(
+		stats.TourLevelSeasons, stats.ChallengerSeasons, year, minMatches, chalWeight,
+	)
+	if !ok {
+		return 0, 0, ErrNoSeasonData
+	}
+
+	h0, b0 := curr.HoldPct, curr.BreakPct
+	if matches < minMatches {
+		if prev, ok := findSeason(stats.TourLevelSeasons, year-1); ok {
+			w := float64(matches) / float64(matches+prev.Matches)
+			h0 = w*curr.HoldPct + (1-w)*prev.HoldPct
+			b0 = w*curr.BreakPct + (1-w)*prev.BreakPct
+		}
+	}
+	return h0, b0, nil
+}
+
 // AdjustedHoldBreak computes form-aware hold and break rates from scraped stats.
 // Season baseline uses the calendar year of AsOf (or FetchedAt / now); recent form
 // is a DR-weighted EWMA that scales hold/break via a convex blend.
