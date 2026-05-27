@@ -137,6 +137,9 @@ func TestGetSetCachedPlayerStats(t *testing.T) {
 		RecentResults: []models.RecentResult{
 			{Tournament: "Rome"},
 		},
+		ChallengerSeasons: []models.TourLevelSeason{
+			{Year: 2026, Matches: 15, HoldPct: 0.75, BreakPct: 0.25, DR: 1.05},
+		},
 	}
 	ttl := 2 * time.Hour
 	if err := SetCachedPlayerStats(ctx, cache, slug, want, ttl); err != nil {
@@ -158,6 +161,9 @@ func TestGetSetCachedPlayerStats(t *testing.T) {
 	}
 	if len(got.RecentResults) != 1 || got.RecentResults[0].Tournament != "Rome" {
 		t.Fatalf("RecentResults = %+v", got.RecentResults)
+	}
+	if len(got.ChallengerSeasons) != 1 || got.ChallengerSeasons[0].Year != 2026 || got.ChallengerSeasons[0].Matches != 15 {
+		t.Fatalf("ChallengerSeasons = %+v", got.ChallengerSeasons)
 	}
 
 	stored, err := mr.Get(PlayerCacheKey(slug))

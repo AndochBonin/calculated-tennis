@@ -55,7 +55,6 @@ func gamesToSixSix(t *testing.T, m *Match) {
 }
 
 func TestWinGame_setCompletion(t *testing.T) {
-	t.Parallel()
 
 	tests := []struct {
 		name       string
@@ -101,7 +100,6 @@ func TestWinGame_setCompletion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
 			m := NewMatch(tt.first)
 			tt.play(t, m)
 
@@ -127,7 +125,6 @@ func TestWinGame_setCompletion(t *testing.T) {
 }
 
 func TestWinGame_sixSix_entersTiebreak(t *testing.T) {
-	t.Parallel()
 
 	m := NewMatch(A)
 	gamesToSixSix(t, m)
@@ -145,7 +142,6 @@ func TestWinGame_sixSix_entersTiebreak(t *testing.T) {
 }
 
 func TestWinTiebreakPoint_margins(t *testing.T) {
-	t.Parallel()
 
 	tests := []struct {
 		name       string
@@ -213,7 +209,6 @@ func TestWinTiebreakPoint_margins(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
 			m := NewMatch(A)
 			tt.play(t, m)
 
@@ -247,7 +242,6 @@ func TestWinTiebreakPoint_margins(t *testing.T) {
 }
 
 func TestMatch_BO3(t *testing.T) {
-	t.Parallel()
 
 	tests := []struct {
 		name         string
@@ -297,7 +291,6 @@ func TestMatch_BO3(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
 			m := NewMatch(A)
 			tt.play(t, m)
 
@@ -324,7 +317,6 @@ func TestMatch_BO3(t *testing.T) {
 }
 
 func TestServerForTBPoint_rotation(t *testing.T) {
-	t.Parallel()
 
 	first := A
 	tests := []struct {
@@ -342,7 +334,6 @@ func TestServerForTBPoint_rotation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("after_%d_points", tt.pointsPlayed), func(t *testing.T) {
-			t.Parallel()
 			got := serverForTBPoint(tt.pointsPlayed, first)
 			if got != tt.want {
 				t.Fatalf("serverForTBPoint(%d) = %v, want %v", tt.pointsPlayed, got, tt.want)
@@ -352,7 +343,6 @@ func TestServerForTBPoint_rotation(t *testing.T) {
 }
 
 func TestMatch_firstServerAfterTiebreakSet(t *testing.T) {
-	t.Parallel()
 
 	tests := []struct {
 		name  string
@@ -411,7 +401,6 @@ func TestMatch_firstServerAfterTiebreakSet(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
 			m := NewMatch(tt.first)
 			firstTB := tt.endTB(t, m)
 
@@ -434,7 +423,6 @@ func TestMatch_firstServerAfterTiebreakSet(t *testing.T) {
 }
 
 func TestMatch_tiebreakServeRotation(t *testing.T) {
-	t.Parallel()
 
 	m := NewMatch(A)
 	gamesToSixSix(t, m)
@@ -455,7 +443,6 @@ func TestMatch_tiebreakServeRotation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("after_%d_points", tt.pointsPlayed), func(t *testing.T) {
-			t.Parallel()
 			m := NewMatch(A)
 			gamesToSixSix(t, m)
 			first := m.Current.FirstServerOfTiebreak
@@ -500,7 +487,6 @@ func reachGrandSlamWomenDecidingSet(t *testing.T, m *Match) {
 }
 
 func TestGrandSlam_tiebreakPoints(t *testing.T) {
-	t.Parallel()
 
 	tests := []struct {
 		name       string
@@ -584,7 +570,6 @@ func TestGrandSlam_tiebreakPoints(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
 			m := NewMatch(A, tt.format)
 			tt.setup(t, m)
 			tt.playTB(t, m)
@@ -614,7 +599,6 @@ func TestGrandSlam_tiebreakPoints(t *testing.T) {
 }
 
 func TestIllegalTransitions(t *testing.T) {
-	t.Parallel()
 
 	tests := []struct {
 		name string
@@ -660,7 +644,6 @@ func TestIllegalTransitions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
 			err := tt.run(t)
 			if err == nil {
 				t.Fatal("expected error, got nil")

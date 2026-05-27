@@ -3,7 +3,6 @@ package tennis
 import "testing"
 
 func TestDefaultFormat_finalSetTiebreakZero(t *testing.T) {
-	t.Parallel()
 	f := DefaultFormat()
 	if f.FinalSetTiebreakPointsToWin != 0 {
 		t.Fatalf("FinalSetTiebreakPointsToWin = %d, want 0", f.FinalSetTiebreakPointsToWin)
@@ -17,7 +16,6 @@ func TestDefaultFormat_finalSetTiebreakZero(t *testing.T) {
 }
 
 func TestGrandSlamMenFormat(t *testing.T) {
-	t.Parallel()
 	f := GrandSlamMenFormat()
 	if f.SetsToWin != 3 {
 		t.Fatalf("SetsToWin = %d, want 3", f.SetsToWin)
@@ -31,7 +29,6 @@ func TestGrandSlamMenFormat(t *testing.T) {
 }
 
 func TestGrandSlamWomenFormat(t *testing.T) {
-	t.Parallel()
 	f := GrandSlamWomenFormat()
 	if f.SetsToWin != 2 {
 		t.Fatalf("SetsToWin = %d, want 2", f.SetsToWin)

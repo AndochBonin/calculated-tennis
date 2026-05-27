@@ -22,7 +22,7 @@ func TestResolveInputs_flagsOnly(t *testing.T) {
 	defer w.Close()
 
 	in, err := resolveInputs(r,
-		"Daniil Medvedev", "Jannik Sinner", "atp", "2.5", "10000",
+		"Daniil Medvedev", "Jannik Sinner", "atp", "2.5", "10000", "", "",
 		prompt.IsInteractive,
 	)
 	if err != nil {
@@ -48,7 +48,7 @@ func TestResolveInputs_formatCaseInsensitive(t *testing.T) {
 	defer r.Close()
 	defer w.Close()
 
-	in, err := resolveInputs(r, "a", "b", "GS-MEN", "1", "1", prompt.IsInteractive)
+	in, err := resolveInputs(r, "a", "b", "GS-MEN", "1", "1", "", "", prompt.IsInteractive)
 	if err != nil {
 		t.Fatalf("resolveInputs: %v", err)
 	}
@@ -75,12 +75,14 @@ func TestResolveInputs_interactivePrompts(t *testing.T) {
 		"2",
 		"2.5",
 		"5000",
+		"",
+		"",
 	}, "\n") + "\n"
 	if _, err := w.WriteString(input); err != nil {
 		t.Fatal(err)
 	}
 
-	in, err := resolveInputs(r, "", "", "", "", "", func(*os.File) bool { return true })
+	in, err := resolveInputs(r, "", "", "", "", "", "", "", func(*os.File) bool { return true })
 	if err != nil {
 		t.Fatalf("resolveInputs: %v", err)
 	}
@@ -93,6 +95,9 @@ func TestResolveInputs_interactivePrompts(t *testing.T) {
 	if in.alpha != 2.5 || in.sims != 5000 {
 		t.Fatalf("alpha=%v sims=%d", in.alpha, in.sims)
 	}
+	if !in.useCoinToss || in.firstServerChosen || in.score != "" {
+		t.Fatalf("score/first server: score=%q chosen=%v coinToss=%v", in.score, in.firstServerChosen, in.useCoinToss)
+	}
 }
 
 func TestResolveInputs_nonInteractiveMissing(t *testing.T) {
@@ -104,7 +109,7 @@ func TestResolveInputs_nonInteractiveMissing(t *testing.T) {
 	defer r.Close()
 	defer w.Close()
 
-	_, err = resolveInputs(r, "", "", "", "", "", prompt.IsInteractive)
+	_, err = resolveInputs(r, "", "", "", "", "", "", "", prompt.IsInteractive)
 	if !errors.Is(err, errUsage) {
 		t.Fatalf("got err %v want errUsage", err)
 	}
@@ -233,7 +238,7 @@ func TestResolveInputs_trimsFlags(t *testing.T) {
 	defer w.Close()
 
 	in, err := resolveInputs(r,
-		"  Player A  ", "  Player B  ", "  atp  ", "  2.5  ", "  100  ",
+		"  Player A  ", "  Player B  ", "  atp  ", "  2.5  ", "  100  ", "", "",
 		prompt.IsInteractive,
 	)
 	if err != nil {
@@ -255,11 +260,11 @@ func TestResolveInputs_interactivePartialFlags(t *testing.T) {
 	}
 	t.Cleanup(func() { r.Close(); w.Close() })
 
-	if _, err := w.WriteString("gs-women\n2500\n"); err != nil {
+	if _, err := w.WriteString("gs-women\n2500\n\n\n"); err != nil {
 		t.Fatal(err)
 	}
 
-	in, err := resolveInputs(r, "A", "B", "", "3", "", func(*os.File) bool { return true })
+	in, err := resolveInputs(r, "A", "B", "", "3", "", "", "", func(*os.File) bool { return true })
 	if err != nil {
 		t.Fatalf("resolveInputs: %v", err)
 	}
@@ -271,6 +276,276 @@ func TestResolveInputs_interactivePartialFlags(t *testing.T) {
 	}
 	if in.alpha != 3 || in.sims != 2500 {
 		t.Fatalf("alpha=%v sims=%d", in.alpha, in.sims)
+	}
+}
+
+func TestResolveInputs_scoreAndFirstServerFlags(t *testing.T) {
+	t.Parallel()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+
+	in, err := resolveInputs(r,
+		"A", "B", "atp", "2", "100",
+		"7-5 4-6 2-3", "1",
+		prompt.IsInteractive,
+	)
+	if err != nil {
+		t.Fatalf("resolveInputs: %v", err)
+	}
+	if in.score != "7-5 4-6 2-3" {
+		t.Fatalf("score %q", in.score)
+	}
+	if !in.firstServerChosen || in.firstServer != tennis.A || in.useCoinToss {
+		t.Fatalf("first server: chosen=%v player=%v coinToss=%v", in.firstServerChosen, in.firstServer, in.useCoinToss)
+	}
+}
+
+func TestResolveInputs_firstServerVariants(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		raw  string
+		want tennis.Player
+	}{
+		{"1", tennis.A},
+		{"a", tennis.A},
+		{"A", tennis.A},
+		{"2", tennis.B},
+		{"b", tennis.B},
+		{"B", tennis.B},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.raw, func(t *testing.T) {
+			t.Parallel()
+			r, w, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer r.Close()
+			defer w.Close()
+
+			in, err := resolveInputs(r, "A", "B", "atp", "1", "1", "", tc.raw, prompt.IsInteractive)
+			if err != nil {
+				t.Fatalf("resolveInputs: %v", err)
+			}
+			if in.firstServer != tc.want {
+				t.Fatalf("firstServer %v want %v", in.firstServer, tc.want)
+			}
+			if !in.firstServerChosen || in.useCoinToss {
+				t.Fatalf("chosen=%v coinToss=%v", in.firstServerChosen, in.useCoinToss)
+			}
+		})
+	}
+}
+
+func TestResolveInputs_scoreWithoutFirstServer(t *testing.T) {
+	t.Parallel()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+
+	_, err = resolveInputs(r, "A", "B", "atp", "1", "1", "6-4", "", prompt.IsInteractive)
+	if !errors.Is(err, errFirstServerRequired) {
+		t.Fatalf("got err %v want errFirstServerRequired", err)
+	}
+}
+
+func TestResolveInputs_interactiveScoreWithoutFirstServer(t *testing.T) {
+	t.Parallel()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { r.Close(); w.Close() })
+
+	input := strings.Join([]string{
+		"Player A",
+		"Player B",
+		"atp",
+		"2",
+		"100",
+		"6-4",
+		"",
+	}, "\n") + "\n"
+	if _, err := w.WriteString(input); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = resolveInputs(r, "", "", "", "", "", "", "", func(*os.File) bool { return true })
+	if !errors.Is(err, errFirstServerRequired) {
+		t.Fatalf("got err %v want errFirstServerRequired", err)
+	}
+}
+
+func TestResolveInputs_invalidFirstServerFlag(t *testing.T) {
+	t.Parallel()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+
+	_, err = resolveInputs(r, "A", "B", "atp", "1", "1", "", "player-a", prompt.IsInteractive)
+	if !errors.Is(err, errInvalidFirstServer) {
+		t.Fatalf("got err %v want errInvalidFirstServer", err)
+	}
+}
+
+func TestResolveInputs_firstServerWithoutScore(t *testing.T) {
+	t.Parallel()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+
+	in, err := resolveInputs(r, "A", "B", "atp", "1", "1", "", "2", prompt.IsInteractive)
+	if err != nil {
+		t.Fatalf("resolveInputs: %v", err)
+	}
+	if in.score != "" || in.useCoinToss || !in.firstServerChosen || in.firstServer != tennis.B {
+		t.Fatalf("score=%q chosen=%v server=%v coinToss=%v", in.score, in.firstServerChosen, in.firstServer, in.useCoinToss)
+	}
+}
+
+func TestResolveInputs_scoreFlagTrimmed(t *testing.T) {
+	t.Parallel()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+
+	in, err := resolveInputs(r,
+		"A", "B", "atp", "1", "1",
+		"  7-5 4-6 2-3  ", "b",
+		prompt.IsInteractive,
+	)
+	if err != nil {
+		t.Fatalf("resolveInputs: %v", err)
+	}
+	if in.score != "7-5 4-6 2-3" {
+		t.Fatalf("score %q", in.score)
+	}
+	if in.firstServer != tennis.B {
+		t.Fatalf("firstServer %v", in.firstServer)
+	}
+}
+
+func TestResolveInputs_interactiveScoreAndFirstServer(t *testing.T) {
+	t.Parallel()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { r.Close(); w.Close() })
+
+	input := strings.Join([]string{
+		"Player A",
+		"Player B",
+		"1",
+		"2",
+		"100",
+		"7-5 4-6 2-3",
+		"2",
+	}, "\n") + "\n"
+	if _, err := w.WriteString(input); err != nil {
+		t.Fatal(err)
+	}
+
+	in, err := resolveInputs(r, "", "", "", "", "", "", "", func(*os.File) bool { return true })
+	if err != nil {
+		t.Fatalf("resolveInputs: %v", err)
+	}
+	if in.score != "7-5 4-6 2-3" {
+		t.Fatalf("score %q", in.score)
+	}
+	if in.firstServer != tennis.B {
+		t.Fatalf("firstServer %v", in.firstServer)
+	}
+}
+
+func TestParseFirstServerChoice_valid(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		raw  string
+		want tennis.Player
+	}{
+		{"1", tennis.A},
+		{"a", tennis.A},
+		{"A", tennis.A},
+		{"2", tennis.B},
+		{"b", tennis.B},
+		{"B", tennis.B},
+	} {
+		p, err := parseFirstServerChoice(tc.raw)
+		if err != nil {
+			t.Fatalf("parseFirstServerChoice(%q): %v", tc.raw, err)
+		}
+		if p != tc.want {
+			t.Fatalf("parseFirstServerChoice(%q) = %v want %v", tc.raw, p, tc.want)
+		}
+	}
+}
+
+func TestParseFirstServerChoice_invalid(t *testing.T) {
+	t.Parallel()
+	for _, raw := range []string{"", "3", "coin", "0"} {
+		_, err := parseFirstServerChoice(raw)
+		if !errors.Is(err, errInvalidFirstServer) {
+			t.Fatalf("parseFirstServerChoice(%q): got err %v want errInvalidFirstServer", raw, err)
+		}
+	}
+}
+
+func TestPrintSummary_withScoreAndFirstServer(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	names := [2]string{"Player A", "Player B"}
+	rates := [2]tennis.PlayerRates{
+		{HoldPct: 0.821, BreakPct: 0.243},
+		{HoldPct: 0.852, BreakPct: 0.281},
+	}
+	in := simInputs{
+		formatLabel:       "ATP best-of-3",
+		score:             "7-5 4-6 2-3",
+		firstServer:       tennis.A,
+		firstServerChosen: true,
+		alpha:             2.5,
+		sims:              10000,
+	}
+	result := tennis.SimulationResult{Wins: [2]int{4521, 5479}}
+
+	printSummary(&buf, names, rates, in, result)
+	out := buf.String()
+	for _, want := range []string{
+		"Score:    7-5 4-6 2-3",
+		"First server: Player A",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestPrintSummary_coinToss(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	names := [2]string{"Player A", "Player B"}
+	in := simInputs{formatLabel: "ATP best-of-3", useCoinToss: true, alpha: 1, sims: 1}
+	printSummary(&buf, names, [2]tennis.PlayerRates{}, in, tennis.SimulationResult{})
+	if !strings.Contains(buf.String(), "coin toss per simulation") {
+		t.Fatalf("output:\n%s", buf.String())
 	}
 }
 

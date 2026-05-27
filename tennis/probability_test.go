@@ -7,7 +7,6 @@ import (
 )
 
 func TestGameWinProb_equalRates(t *testing.T) {
-	t.Parallel()
 	const alpha = 2
 	for _, hold := range []float64{0, 0.5, 0.6, 1} {
 		p, err := GameWinProb(hold, hold, alpha)
@@ -21,7 +20,6 @@ func TestGameWinProb_equalRates(t *testing.T) {
 }
 
 func TestGameWinProb_symmetry(t *testing.T) {
-	t.Parallel()
 	const alpha = 2
 	pHigh, err := GameWinProb(0.8, 0.2, alpha)
 	if err != nil {
@@ -41,7 +39,6 @@ func TestGameWinProb_symmetry(t *testing.T) {
 }
 
 func TestGameWinProb_extremes(t *testing.T) {
-	t.Parallel()
 	const alpha = 2
 	p, err := GameWinProb(1, 0, alpha)
 	if err != nil {
@@ -60,7 +57,6 @@ func TestGameWinProb_extremes(t *testing.T) {
 }
 
 func TestGameWinProb_validation(t *testing.T) {
-	t.Parallel()
 	tests := []struct {
 		name          string
 		serverHold    float64
@@ -77,7 +73,6 @@ func TestGameWinProb_validation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
 			_, err := GameWinProb(tt.serverHold, tt.opponentBreak, tt.alpha)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("GameWinProb() error = %v, want %v", err, tt.wantErr)

@@ -57,6 +57,12 @@ func validateSimulationParams(rates [2]PlayerRates, alpha float64, n int, rng *r
 	return nil
 }
 
+// firstServerCoinToss and runOnceSim are variables so tests can inject failures.
+var (
+	firstServerCoinToss = FirstServerCoinToss
+	runOnceSim          = runOnce
+)
+
 // FirstServerCoinToss returns A or B with equal probability.
 func FirstServerCoinToss(rng *rand.Rand) (Player, error) {
 	if rng == nil {
@@ -80,12 +86,12 @@ func SimulateFresh(format MatchFormat, rates [2]PlayerRates, alpha float64, n in
 
 	var result SimulationResult
 	for i := 0; i < n; i++ {
-		first, err := FirstServerCoinToss(rng)
+		first, err := firstServerCoinToss(rng)
 		if err != nil {
 			return SimulationResult{}, err
 		}
 		m := NewMatch(first, format)
-		winner, err := runOnce(m, rates, alpha, rng)
+		winner, err := runOnceSim(m, rates, alpha, rng)
 		if err != nil {
 			return SimulationResult{}, err
 		}
@@ -114,13 +120,20 @@ func Simulate(initial *Match, rates [2]PlayerRates, alpha float64, n int, rng *r
 	var result SimulationResult
 	for i := 0; i < n; i++ {
 		m := initial.Clone()
-		winner, err := runOnce(&m, rates, alpha, rng)
+		winner, err := runOnceSim(&m, rates, alpha, rng)
 		if err != nil {
 			return SimulationResult{}, err
 		}
 		result.Wins[winner.index()]++
 	}
 	return result, nil
+}
+
+func applySimulatedPoint(m *Match, winner Player) error {
+	if m.Phase() == Regular {
+		return m.WinGame(winner)
+	}
+	return m.WinTiebreakPoint(winner)
 }
 
 func runOnce(m *Match, rates [2]PlayerRates, alpha float64, rng *rand.Rand) (Player, error) {
@@ -135,14 +148,8 @@ func runOnce(m *Match, rates [2]PlayerRates, alpha float64, rng *rand.Rand) (Pla
 		if rng.Float64() < p {
 			winner = server
 		}
-		if m.Phase() == Regular {
-			if err := m.WinGame(winner); err != nil {
-				return 0, err
-			}
-		} else {
-			if err := m.WinTiebreakPoint(winner); err != nil {
-				return 0, err
-			}
+		if err := applySimulatedPoint(m, winner); err != nil {
+			return 0, err
 		}
 	}
 	return *m.Winner, nil

@@ -33,6 +33,9 @@ func TestParsePlayerHTML_MedvedevFixture(t *testing.T) {
 	if len(stats.TourLevelSeasons) != 12 {
 		t.Fatalf("TourLevelSeasons len = %d, want 12", len(stats.TourLevelSeasons))
 	}
+	if stats.ChallengerSeasons != nil {
+		t.Fatalf("ChallengerSeasons = %v, want nil (fixture has no challenger table)", stats.ChallengerSeasons)
+	}
 
 	first := stats.RecentResults[0]
 	wantDate := time.Date(2026, time.May, 6, 0, 0, 0, 0, time.UTC)
@@ -271,6 +274,133 @@ func TestParsePlayerHTML_skipsBadRows(t *testing.T) {
 	}
 	if year2026 == nil || year2026.url != "/year/2026" {
 		t.Fatalf("2026 YearURL = %v", year2026)
+	}
+}
+
+func seasonTablesHTML(challengerBody string) string {
+	recentHeader := strings.Join([]string{
+		"Date", "Tournament", "Surface", "Rd", "Rk", "vRk", "Score", "DR",
+		"A%", "DF%", "1stIn", "1st%", "2nd%", "BPSvd", "Time",
+	}, "</th><th>")
+	seasonHeader := strings.Join([]string{
+		"Year", "M", "W", "L", "Win%", "Set W-L", "Set%", "Game W-L", "Game%",
+		"TB W-L", "TB%", "MS", "Hld%", "Brk%", "A%", "DF%", "1stIn", "1st%", "2nd%",
+		"SPW", "RPW", "TPW", "DR", "Best",
+	}, "</th><th>")
+	tourRow := `<tr><td><a href="/year/2026">2026</a></td><td>10</td><td>6</td><td>4</td><td>60%</td><td>1-1</td><td>50%</td><td>10-10</td><td>50%</td><td>0-0</td><td>0%</td><td>5</td><td>80%</td><td>20%</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>1.1</td><td>SF</td></tr>`
+	chalSection := ""
+	if challengerBody != "" {
+		chalSection = `<h2>Challenger Seasons</h2>
+<table><thead><tr><th>` + seasonHeader + `</th></tr></thead><tbody>` + challengerBody + `</tbody></table>`
+	}
+	return `<html><body>
+<h2>Recent Results</h2>
+<table><thead><tr><th>` + recentHeader + `</th></tr></thead><tbody></tbody></table>
+<h2>Tour-Level Seasons</h2>
+<table><thead><tr><th>` + seasonHeader + `</th></tr></thead><tbody>` + tourRow + `</tbody></table>
+` + chalSection + `
+</body></html>`
+}
+
+func TestParsePlayerHTML_challengerSeasons(t *testing.T) {
+	t.Parallel()
+
+	chalRow := `<tr><td>2026</td><td>15</td><td>10</td><td>5</td><td>67%</td><td>2-1</td><td>67%</td><td>20-15</td><td>57%</td><td>1-0</td><td>100%</td><td>8</td><td>75%</td><td>25%</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>1.05</td><td>W</td></tr>`
+	stats, err := ParsePlayerHTML(strings.NewReader(seasonTablesHTML(chalRow)), "Young")
+	if err != nil {
+		t.Fatalf("ParsePlayerHTML: %v", err)
+	}
+	if len(stats.ChallengerSeasons) != 1 {
+		t.Fatalf("ChallengerSeasons len = %d, want 1", len(stats.ChallengerSeasons))
+	}
+	s := stats.ChallengerSeasons[0]
+	if s.Year != 2026 || s.IsCareer {
+		t.Fatalf("year = %d career=%v, want 2026", s.Year, s.IsCareer)
+	}
+	if s.Matches != 15 || s.Wins != 10 || s.Losses != 5 {
+		t.Fatalf("M/W/L = %d/%d/%d, want 15/10/5", s.Matches, s.Wins, s.Losses)
+	}
+	if math.Abs(s.HoldPct-0.75) > 1e-9 || math.Abs(s.BreakPct-0.25) > 1e-9 {
+		t.Fatalf("hold/break = %v/%v, want 0.75/0.25", s.HoldPct, s.BreakPct)
+	}
+	if math.Abs(s.DR-1.05) > 1e-9 {
+		t.Fatalf("DR = %v, want 1.05", s.DR)
+	}
+}
+
+func TestParsePlayerHTML_challengerSeasonsOptional(t *testing.T) {
+	t.Parallel()
+
+	stats, err := ParsePlayerHTML(strings.NewReader(seasonTablesHTML("")), "Young")
+	if err != nil {
+		t.Fatalf("ParsePlayerHTML: %v", err)
+	}
+	if stats.ChallengerSeasons != nil {
+		t.Fatalf("ChallengerSeasons = %v, want nil when section absent", stats.ChallengerSeasons)
+	}
+}
+
+func TestParsePlayerHTML_challengerMultipleYears(t *testing.T) {
+	t.Parallel()
+
+	rows := `<tr><td>2025</td><td>30</td><td>20</td><td>10</td><td>67%</td><td>2-1</td><td>67%</td><td>20-15</td><td>57%</td><td>1-0</td><td>100%</td><td>8</td><td>70%</td><td>30%</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>1.00</td><td>SF</td></tr>
+<tr><td>2026</td><td>15</td><td>10</td><td>5</td><td>67%</td><td>2-1</td><td>67%</td><td>20-15</td><td>57%</td><td>1-0</td><td>100%</td><td>8</td><td>75%</td><td>25%</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>1.05</td><td>W</td></tr>`
+	stats, err := ParsePlayerHTML(strings.NewReader(seasonTablesHTML(rows)), "Young")
+	if err != nil {
+		t.Fatalf("ParsePlayerHTML: %v", err)
+	}
+	if len(stats.ChallengerSeasons) != 2 {
+		t.Fatalf("ChallengerSeasons len = %d, want 2", len(stats.ChallengerSeasons))
+	}
+	var y2025, y2026 bool
+	for _, s := range stats.ChallengerSeasons {
+		switch s.Year {
+		case 2025:
+			y2025 = true
+			if math.Abs(s.HoldPct-0.70) > 1e-9 {
+				t.Fatalf("2025 HoldPct = %v, want 0.70", s.HoldPct)
+			}
+		case 2026:
+			y2026 = true
+			if math.Abs(s.HoldPct-0.75) > 1e-9 {
+				t.Fatalf("2026 HoldPct = %v, want 0.75", s.HoldPct)
+			}
+		}
+	}
+	if !y2025 || !y2026 {
+		t.Fatal("expected 2025 and 2026 challenger rows")
+	}
+}
+
+func TestParsePlayerHTML_challengerUnexpectedColumns(t *testing.T) {
+	t.Parallel()
+
+	html := strings.Replace(seasonTablesHTML(""),
+		`</body></html>`,
+		`<h2>Challenger Seasons</h2>
+<table><thead><tr><th>Wrong</th></tr></thead><tbody></tbody></table>
+</body></html>`, 1)
+	_, err := ParsePlayerHTML(strings.NewReader(html), "Young")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, ErrUnexpectedColumns) {
+		t.Fatalf("expected ErrUnexpectedColumns, got %v", err)
+	}
+}
+
+func TestParsePlayerHTML_challengerHeadingWithoutTable(t *testing.T) {
+	t.Parallel()
+
+	html := strings.Replace(seasonTablesHTML(""), "</body></html>",
+		`<h2>Challenger Seasons</h2><p>no table</p>
+</body></html>`, 1)
+	stats, err := ParsePlayerHTML(strings.NewReader(html), "Young")
+	if err != nil {
+		t.Fatalf("ParsePlayerHTML: %v", err)
+	}
+	if stats.ChallengerSeasons != nil {
+		t.Fatalf("ChallengerSeasons = %v, want nil when table missing", stats.ChallengerSeasons)
 	}
 }
 

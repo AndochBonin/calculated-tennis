@@ -4,6 +4,7 @@
 //
 //	go run ./cmd/simmatch
 //	go run ./cmd/simmatch -player-a="Daniil Medvedev" -player-b="Jannik Sinner" -format=atp -alpha=2.5 -sims=10000
+//	go run ./cmd/simmatch ... -score="7-5 4-6 2-3" -first-server=1
 //
 // Or: make sim-match
 // Or: make sim-match PLAYER_A="..." PLAYER_B="..." FORMAT=atp ALPHA=2.5 SIMS=10000
@@ -38,7 +39,9 @@ var (
 	errUsage          = errors.New("usage")
 	errInvalidFormat  = errors.New("invalid match format")
 	errInvalidAlpha   = errors.New("alpha must be positive")
-	errInvalidSims    = errors.New("number of simulations must be positive")
+	errInvalidSims           = errors.New("number of simulations must be positive")
+	errFirstServerRequired   = errors.New("first server is required when score is provided")
+	errInvalidFirstServer    = errors.New("invalid first server")
 )
 
 func main() {
@@ -55,9 +58,12 @@ func exitRun() int {
 	formatFlag := flag.String("format", "", "match format: atp, gs-men, gs-women")
 	alphaFlag := flag.String("alpha", "", "sensitivity parameter (must be > 0)")
 	simsFlag := flag.String("sims", "", "number of Monte Carlo simulations")
+	scoreFlag := flag.String("score", "", "optional match score (A-B per set, space-separated)")
+	firstServerFlag := flag.String("first-server", "", "first server: 1 or a = player A, 2 or b = player B (required with -score)")
 	flag.Parse()
 
-	in, err := resolveInputs(os.Stdin, *playerAFlag, *playerBFlag, *formatFlag, *alphaFlag, *simsFlag, prompt.IsInteractive)
+	in, err := resolveInputs(os.Stdin, *playerAFlag, *playerBFlag, *formatFlag, *alphaFlag, *simsFlag,
+		*scoreFlag, *firstServerFlag, prompt.IsInteractive)
 	if err != nil {
 		if errors.Is(err, errUsage) {
 			log.Error("usage", "msg", "player-a, player-b, format, alpha, and sims are required")
@@ -110,7 +116,20 @@ func exitRun() int {
 	log.Info("rng seed", "seed1", seed1, "seed2", seed2)
 
 	log.Info("simulating", "sims", in.sims)
-	result, err := tennis.SimulateFresh(in.format, rates, in.alpha, in.sims, rng)
+	var result tennis.SimulationResult
+	if in.score != "" {
+		initial, err := tennis.MatchFromScore(in.format, in.firstServer, in.score)
+		if err != nil {
+			log.Error("match from score", "err", err)
+			return 1
+		}
+		result, err = tennis.Simulate(initial, rates, in.alpha, in.sims, rng)
+	} else if in.firstServerChosen {
+		initial := tennis.NewMatch(in.firstServer, in.format)
+		result, err = tennis.Simulate(initial, rates, in.alpha, in.sims, rng)
+	} else {
+		result, err = tennis.SimulateFresh(in.format, rates, in.alpha, in.sims, rng)
+	}
 	if err != nil {
 		log.Error("simulate", "err", err)
 		return 1
@@ -121,15 +140,19 @@ func exitRun() int {
 }
 
 type simInputs struct {
-	playerA     string
-	playerB     string
-	format      tennis.MatchFormat
-	formatLabel string
-	alpha       float64
-	sims        int
+	playerA           string
+	playerB           string
+	format            tennis.MatchFormat
+	formatLabel       string
+	alpha             float64
+	sims              int
+	score             string
+	firstServer       tennis.Player
+	firstServerChosen bool
+	useCoinToss       bool
 }
 
-func resolveInputs(stdin *os.File, playerAFlag, playerBFlag, formatFlag, alphaFlag, simsFlag string, interactive func(*os.File) bool) (simInputs, error) {
+func resolveInputs(stdin *os.File, playerAFlag, playerBFlag, formatFlag, alphaFlag, simsFlag, scoreFlag, firstServerFlag string, interactive func(*os.File) bool) (simInputs, error) {
 	var br *bufio.Reader
 	if interactive(stdin) {
 		br = bufio.NewReader(stdin)
@@ -155,13 +178,25 @@ func resolveInputs(stdin *os.File, playerAFlag, playerBFlag, formatFlag, alphaFl
 	if err != nil {
 		return simInputs{}, err
 	}
+	score, err := resolveScore(scoreFlag, br)
+	if err != nil {
+		return simInputs{}, err
+	}
+	firstServer, firstServerChosen, useCoinToss, err := resolveFirstServer(firstServerFlag, score, playerA, playerB, br)
+	if err != nil {
+		return simInputs{}, err
+	}
 	return simInputs{
-		playerA:     playerA,
-		playerB:     playerB,
-		format:      format,
-		formatLabel: formatLabel,
-		alpha:       alpha,
-		sims:        sims,
+		playerA:           playerA,
+		playerB:           playerB,
+		format:            format,
+		formatLabel:       formatLabel,
+		alpha:             alpha,
+		sims:              sims,
+		score:             score,
+		firstServer:       firstServer,
+		firstServerChosen: firstServerChosen,
+		useCoinToss:       useCoinToss,
 	}, nil
 }
 
@@ -260,6 +295,59 @@ func resolveSims(simsFlag string, br *bufio.Reader) (int, error) {
 	return n, nil
 }
 
+func resolveScore(scoreFlag string, br *bufio.Reader) (string, error) {
+	raw := strings.TrimSpace(scoreFlag)
+	if raw == "" && br != nil {
+		var err error
+		raw, err = prompt.ReadLineFrom(os.Stderr, br, "Match score (A-B per set, space-separated, Enter to skip): ")
+		if err != nil {
+			return "", err
+		}
+	}
+	return raw, nil
+}
+
+func firstServerMenuLabel(playerA, playerB string) string {
+	return "First server:\n" +
+		"  1) " + playerA + "\n" +
+		"  2) " + playerB + "\n" +
+		"  Enter for coin toss each simulation\n" +
+		"Choice (1-2 or a/b, Enter to skip): "
+}
+
+func resolveFirstServer(firstServerFlag, score, playerA, playerB string, br *bufio.Reader) (tennis.Player, bool, bool, error) {
+	raw := strings.TrimSpace(firstServerFlag)
+	if raw == "" && br != nil {
+		var err error
+		raw, err = prompt.ReadLineFrom(os.Stderr, br, firstServerMenuLabel(playerA, playerB))
+		if err != nil {
+			return 0, false, false, err
+		}
+	}
+	if raw == "" {
+		if score != "" {
+			return 0, false, false, errFirstServerRequired
+		}
+		return 0, false, true, nil
+	}
+	p, err := parseFirstServerChoice(raw)
+	if err != nil {
+		return 0, false, false, err
+	}
+	return p, true, false, nil
+}
+
+func parseFirstServerChoice(raw string) (tennis.Player, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "a":
+		return tennis.A, nil
+	case "2", "b":
+		return tennis.B, nil
+	default:
+		return 0, fmt.Errorf("%w: %q", errInvalidFirstServer, raw)
+	}
+}
+
 func newSeededRNG() (*rand.Rand, uint64, uint64, error) {
 	var buf [16]byte
 	if _, err := cryptorand.Read(buf[:]); err != nil {
@@ -275,6 +363,14 @@ func printSummary(w io.Writer, names [2]string, rates [2]tennis.PlayerRates, in 
 	fmt.Fprintf(w, "  Player A: %s  (hold %s, break %s)\n", names[0], pct(rates[0].HoldPct), pct(rates[0].BreakPct))
 	fmt.Fprintf(w, "  Player B: %s  (hold %s, break %s)\n", names[1], pct(rates[1].HoldPct), pct(rates[1].BreakPct))
 	fmt.Fprintf(w, "  Format:   %s\n", in.formatLabel)
+	if in.score != "" {
+		fmt.Fprintf(w, "  Score:    %s\n", in.score)
+	}
+	if in.useCoinToss {
+		fmt.Fprintln(w, "  First server: coin toss per simulation")
+	} else if in.firstServerChosen {
+		fmt.Fprintf(w, "  First server: %s\n", names[int(in.firstServer)])
+	}
 	fmt.Fprintf(w, "  Alpha:    %g\n", in.alpha)
 	fmt.Fprintf(w, "  Sims:     %d\n", in.sims)
 	fmt.Fprintln(w)

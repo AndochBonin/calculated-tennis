@@ -151,6 +151,310 @@ func TestAdjustedHoldBreak_formMonotonicity(t *testing.T) {
 	}
 }
 
+func TestAdjustedHoldBreak_challengerSupplement(t *testing.T) {
+	t.Parallel()
+
+	asOf := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	const chalWeight = 0.7
+	opts := FormOptions{
+		AsOf:             asOf,
+		MinSeasonMatches: 20,
+		RecentMatchLimit: 0,
+		FormWeightMax:    0,
+		ChallengerWeight: chalWeight,
+	}
+
+	t.Run("tour thin plus challenger same year", func(t *testing.T) {
+		t.Parallel()
+		stats := models.PlayerStats{
+			TourLevelSeasons: []models.TourLevelSeason{
+				{Year: 2026, Matches: 10, HoldPct: 0.80, BreakPct: 0.20, DR: 1.00},
+			},
+			ChallengerSeasons: []models.TourLevelSeason{
+				{Year: 2026, Matches: 20, HoldPct: 0.70, BreakPct: 0.30, DR: 0.90},
+			},
+		}
+		rates, err := AdjustedHoldBreak(stats, opts)
+		if err != nil {
+			t.Fatalf("AdjustedHoldBreak: %v", err)
+		}
+		scaledChalH := 0.70 * chalWeight
+		w := 10.0 / (10.0 + 20.0)
+		wantH := w*0.80 + (1-w)*scaledChalH
+		if math.Abs(rates.SeasonHold-wantH) > 1e-9 {
+			t.Fatalf("SeasonHold = %v, want %v", rates.SeasonHold, wantH)
+		}
+		if rates.SeasonMatches != 30 {
+			t.Fatalf("SeasonMatches = %d, want 30", rates.SeasonMatches)
+		}
+	})
+
+	t.Run("tour sufficient ignores challenger", func(t *testing.T) {
+		t.Parallel()
+		stats := models.PlayerStats{
+			TourLevelSeasons: []models.TourLevelSeason{
+				{Year: 2026, Matches: 30, HoldPct: 0.80, BreakPct: 0.20, DR: 1.00},
+			},
+			ChallengerSeasons: []models.TourLevelSeason{
+				{Year: 2026, Matches: 20, HoldPct: 0.50, BreakPct: 0.50, DR: 0.50},
+			},
+		}
+		rates, err := AdjustedHoldBreak(stats, opts)
+		if err != nil {
+			t.Fatalf("AdjustedHoldBreak: %v", err)
+		}
+		if math.Abs(rates.SeasonHold-0.80) > 1e-9 {
+			t.Fatalf("SeasonHold = %v, want tour-only 0.80", rates.SeasonHold)
+		}
+		if rates.SeasonMatches != 30 {
+			t.Fatalf("SeasonMatches = %d, want 30", rates.SeasonMatches)
+		}
+	})
+
+	t.Run("latest challenger not eval year", func(t *testing.T) {
+		t.Parallel()
+		stats := models.PlayerStats{
+			TourLevelSeasons: []models.TourLevelSeason{
+				{Year: 2026, Matches: 10, HoldPct: 0.80, BreakPct: 0.20, DR: 1.00},
+			},
+			ChallengerSeasons: []models.TourLevelSeason{
+				{Year: 2025, Matches: 40, HoldPct: 0.50, BreakPct: 0.50, DR: 0.50},
+			},
+		}
+		rates, err := AdjustedHoldBreak(stats, opts)
+		if err != nil {
+			t.Fatalf("AdjustedHoldBreak: %v", err)
+		}
+		if math.Abs(rates.SeasonHold-0.80) > 1e-9 {
+			t.Fatalf("SeasonHold = %v, want tour-only 0.80", rates.SeasonHold)
+		}
+		if rates.SeasonMatches != 10 {
+			t.Fatalf("SeasonMatches = %d, want 10", rates.SeasonMatches)
+		}
+	})
+
+	t.Run("no tour challenger only", func(t *testing.T) {
+		t.Parallel()
+		stats := models.PlayerStats{
+			ChallengerSeasons: []models.TourLevelSeason{
+				{Year: 2026, Matches: 15, HoldPct: 0.75, BreakPct: 0.25, DR: 1.05},
+			},
+		}
+		rates, err := AdjustedHoldBreak(stats, opts)
+		if err != nil {
+			t.Fatalf("AdjustedHoldBreak: %v", err)
+		}
+		wantH := 0.75 * chalWeight
+		if math.Abs(rates.SeasonHold-wantH) > 1e-9 {
+			t.Fatalf("SeasonHold = %v, want scaled %v", rates.SeasonHold, wantH)
+		}
+		if rates.SeasonMatches != 15 {
+			t.Fatalf("SeasonMatches = %d, want 15", rates.SeasonMatches)
+		}
+	})
+
+	t.Run("neither usable", func(t *testing.T) {
+		t.Parallel()
+		_, err := AdjustedHoldBreak(models.PlayerStats{
+			ChallengerSeasons: []models.TourLevelSeason{
+				{Year: 2025, Matches: 40, HoldPct: 0.50, BreakPct: 0.50, DR: 0.50},
+			},
+		}, opts)
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !errors.Is(err, ErrNoSeasonData) {
+			t.Fatalf("expected ErrNoSeasonData, got %v", err)
+		}
+	})
+
+	t.Run("challenger gate uses max year not row order", func(t *testing.T) {
+		t.Parallel()
+		stats := models.PlayerStats{
+			TourLevelSeasons: []models.TourLevelSeason{
+				{Year: 2026, Matches: 10, HoldPct: 0.80, BreakPct: 0.20, DR: 1.00},
+			},
+			ChallengerSeasons: []models.TourLevelSeason{
+				{Year: 2025, Matches: 50, HoldPct: 0.50, BreakPct: 0.50, DR: 0.50},
+				{Year: 2026, Matches: 20, HoldPct: 0.70, BreakPct: 0.30, DR: 0.90},
+			},
+		}
+		rates, err := AdjustedHoldBreak(stats, opts)
+		if err != nil {
+			t.Fatalf("AdjustedHoldBreak: %v", err)
+		}
+		scaledChalH := 0.70 * chalWeight
+		w := 10.0 / (10.0 + 20.0)
+		wantH := w*0.80 + (1-w)*scaledChalH
+		if math.Abs(rates.SeasonHold-wantH) > 1e-9 {
+			t.Fatalf("SeasonHold = %v, want blended %v", rates.SeasonHold, wantH)
+		}
+	})
+
+	t.Run("newer challenger year blocks supplement", func(t *testing.T) {
+		t.Parallel()
+		stats := models.PlayerStats{
+			TourLevelSeasons: []models.TourLevelSeason{
+				{Year: 2026, Matches: 10, HoldPct: 0.80, BreakPct: 0.20, DR: 1.00},
+			},
+			ChallengerSeasons: []models.TourLevelSeason{
+				{Year: 2026, Matches: 20, HoldPct: 0.50, BreakPct: 0.50, DR: 0.50},
+				{Year: 2027, Matches: 5, HoldPct: 0.60, BreakPct: 0.40, DR: 0.80},
+			},
+		}
+		rates, err := AdjustedHoldBreak(stats, opts)
+		if err != nil {
+			t.Fatalf("AdjustedHoldBreak: %v", err)
+		}
+		if math.Abs(rates.SeasonHold-0.80) > 1e-9 {
+			t.Fatalf("SeasonHold = %v, want tour-only 0.80", rates.SeasonHold)
+		}
+		if rates.SeasonMatches != 10 {
+			t.Fatalf("SeasonMatches = %d, want 10", rates.SeasonMatches)
+		}
+	})
+
+	t.Run("challenger merge then prior tour blend", func(t *testing.T) {
+		t.Parallel()
+		stats := models.PlayerStats{
+			TourLevelSeasons: []models.TourLevelSeason{
+				{Year: 2026, Matches: 5, HoldPct: 0.90, BreakPct: 0.10, DR: 1.20},
+				{Year: 2025, Matches: 50, HoldPct: 0.70, BreakPct: 0.30, DR: 1.00},
+			},
+			ChallengerSeasons: []models.TourLevelSeason{
+				{Year: 2026, Matches: 5, HoldPct: 0.70, BreakPct: 0.30, DR: 0.90},
+			},
+		}
+		rates, err := AdjustedHoldBreak(stats, opts)
+		if err != nil {
+			t.Fatalf("AdjustedHoldBreak: %v", err)
+		}
+		scaledChalH := 0.70 * chalWeight
+		wTourChal := 5.0 / (5.0 + 5.0)
+		hCurr := wTourChal*0.90 + (1-wTourChal)*scaledChalH
+		wantH := 10.0/60*hCurr + 50.0/60*0.70
+		if math.Abs(rates.SeasonHold-wantH) > 1e-9 {
+			t.Fatalf("SeasonHold = %v, want %v", rates.SeasonHold, wantH)
+		}
+		if rates.SeasonMatches != 60 {
+			t.Fatalf("SeasonMatches = %d, want 60", rates.SeasonMatches)
+		}
+	})
+}
+
+func TestBuildEffectiveCurrentSeason(t *testing.T) {
+	t.Parallel()
+
+	year := 2026
+	minM := 20
+	weight := 0.9
+
+	t.Run("tour only sufficient", func(t *testing.T) {
+		t.Parallel()
+		tour := []models.TourLevelSeason{{Year: 2026, Matches: 30, HoldPct: 0.8, BreakPct: 0.2, DR: 1.0}}
+		chal := []models.TourLevelSeason{{Year: 2026, Matches: 10, HoldPct: 0.5, BreakPct: 0.5, DR: 0.5}}
+		s, m, ok := buildEffectiveCurrentSeason(tour, chal, year, minM, weight)
+		if !ok || m != 30 || math.Abs(s.HoldPct-0.8) > 1e-9 {
+			t.Fatalf("got %+v ok=%v m=%d", s, ok, m)
+		}
+	})
+
+	t.Run("career row ignored for gate", func(t *testing.T) {
+		t.Parallel()
+		chal := []models.TourLevelSeason{
+			{Year: 2026, Matches: 15, HoldPct: 0.75, BreakPct: 0.25, DR: 1.0},
+			{IsCareer: true, Matches: 100, HoldPct: 0.5, BreakPct: 0.5, DR: 0.5},
+		}
+		s, m, ok := buildEffectiveCurrentSeason(nil, chal, year, minM, weight)
+		wantH := 0.75 * weight
+		if !ok || m != 15 || math.Abs(s.HoldPct-wantH) > 1e-9 {
+			t.Fatalf("got HoldPct=%v ok=%v m=%d, want hold %v", s.HoldPct, ok, m, wantH)
+		}
+	})
+
+	t.Run("thin tour plus challenger match blend", func(t *testing.T) {
+		t.Parallel()
+		tour := []models.TourLevelSeason{{Year: 2026, Matches: 10, HoldPct: 0.80, BreakPct: 0.20, DR: 1.0}}
+		chal := []models.TourLevelSeason{{Year: 2026, Matches: 20, HoldPct: 0.70, BreakPct: 0.30, DR: 0.90}}
+		s, m, ok := buildEffectiveCurrentSeason(tour, chal, year, minM, weight)
+		scaledChalH := 0.70 * weight
+		w := 10.0 / 30.0
+		wantH := w*0.80 + (1-w)*scaledChalH
+		if !ok || m != 30 || math.Abs(s.HoldPct-wantH) > 1e-9 {
+			t.Fatalf("got HoldPct=%v ok=%v m=%d, want hold %v", s.HoldPct, ok, m, wantH)
+		}
+	})
+
+	t.Run("challenger 100 pct scaled by weight 0.3", func(t *testing.T) {
+		t.Parallel()
+		tour := []models.TourLevelSeason{{Year: 2026, Matches: 10, HoldPct: 0.50, BreakPct: 0.50, DR: 1.0}}
+		chal := []models.TourLevelSeason{{Year: 2026, Matches: 10, HoldPct: 1.0, BreakPct: 1.0, DR: 1.0}}
+		const w = 0.3
+		s, m, ok := buildEffectiveCurrentSeason(tour, chal, year, minM, w)
+		scaledChal := 1.0 * w
+		blendW := 10.0 / 20.0
+		wantH := blendW*0.50 + (1-blendW)*scaledChal
+		wantB := blendW*0.50 + (1-blendW)*scaledChal
+		if !ok || m != 20 {
+			t.Fatalf("got ok=%v m=%d, want ok=true m=20", ok, m)
+		}
+		if math.Abs(s.HoldPct-wantH) > 1e-9 || math.Abs(s.BreakPct-wantB) > 1e-9 {
+			t.Fatalf("got hold=%v break=%v, want hold=%v break=%v", s.HoldPct, s.BreakPct, wantH, wantB)
+		}
+		if math.Abs(s.HoldPct-1.0) < 1e-9 {
+			t.Fatal("hold must use scaled challenger 0.3, not raw 1.0")
+		}
+	})
+}
+
+func TestFormOptions_withDefaultsFromEnv(t *testing.T) {
+	t.Setenv(formMinSeasonMatchesEnv, "")
+	t.Setenv(formRecentMatchLimitEnv, "")
+	t.Setenv(formHalfLifeMatchesEnv, "")
+	t.Setenv(formWeightMaxEnv, "")
+	t.Setenv(formRatioMinEnv, "")
+	t.Setenv(formRatioMaxEnv, "")
+	t.Setenv(formChallengerWeightEnv, "")
+
+	got := (FormOptions{}).withDefaults()
+	if got.MinSeasonMatches != defaultMinSeasonMatches ||
+		got.RecentMatchLimit != defaultRecentMatchLimit ||
+		got.HalfLifeMatches != defaultHalfLifeMatches ||
+		got.FormWeightMax != defaultFormWeightMax ||
+		got.FormRatioMin != defaultFormRatioMin ||
+		got.FormRatioMax != defaultFormRatioMax ||
+		got.ChallengerWeight != defaultChallengerWeight {
+		t.Fatalf("empty env defaults: %+v", got)
+	}
+
+	t.Setenv(formMinSeasonMatchesEnv, "25")
+	t.Setenv(formRecentMatchLimitEnv, "10")
+	t.Setenv(formHalfLifeMatchesEnv, "4")
+	t.Setenv(formWeightMaxEnv, "0.25")
+	t.Setenv(formRatioMinEnv, "0.90")
+	t.Setenv(formRatioMaxEnv, "1.10")
+	t.Setenv(formChallengerWeightEnv, "0.85")
+
+	got = (FormOptions{}).withDefaults()
+	if got.MinSeasonMatches != 25 || got.RecentMatchLimit != 10 ||
+		got.HalfLifeMatches != 4 || got.FormWeightMax != 0.25 ||
+		got.FormRatioMin != 0.90 || got.FormRatioMax != 1.10 ||
+		got.ChallengerWeight != 0.85 {
+		t.Fatalf("env overrides: %+v", got)
+	}
+
+	t.Setenv(formMinSeasonMatchesEnv, "bad")
+	got = (FormOptions{}).withDefaults()
+	if got.MinSeasonMatches != defaultMinSeasonMatches {
+		t.Fatalf("invalid env = %d, want %d", got.MinSeasonMatches, defaultMinSeasonMatches)
+	}
+
+	explicit := FormOptions{MinSeasonMatches: 7}.withDefaults()
+	if explicit.MinSeasonMatches != 7 {
+		t.Fatalf("explicit option kept: %d", explicit.MinSeasonMatches)
+	}
+}
+
 func TestAdjustedHoldBreak_noSeasonData(t *testing.T) {
 	t.Parallel()
 

@@ -3,7 +3,6 @@ package tennis
 import "testing"
 
 func TestNewMatch_defaultFormat(t *testing.T) {
-	t.Parallel()
 
 	m := NewMatch(A)
 	if m.Format != DefaultFormat() {
@@ -18,7 +17,6 @@ func TestNewMatch_defaultFormat(t *testing.T) {
 }
 
 func TestNewMatch_customFormat(t *testing.T) {
-	t.Parallel()
 
 	custom := MatchFormat{
 		SetsToWin:           3,
@@ -38,7 +36,6 @@ func TestNewMatch_customFormat(t *testing.T) {
 }
 
 func TestMatch_Clone_partialMatch(t *testing.T) {
-	t.Parallel()
 
 	m := NewMatch(A)
 	for range 5 {
@@ -65,7 +62,6 @@ func TestMatch_Clone_partialMatch(t *testing.T) {
 }
 
 func TestMatch_Clone_isolatedFromMutations(t *testing.T) {
-	t.Parallel()
 
 	m := NewMatch(A)
 	c := m.Clone()
@@ -79,8 +75,27 @@ func TestMatch_Clone_isolatedFromMutations(t *testing.T) {
 	}
 }
 
+func TestMatch_Clone_copiesWinner(t *testing.T) {
+
+	fmt := DefaultFormat()
+	fmt.SetsToWin = 1
+	m := NewMatch(A, fmt)
+	mustWinGames(t, m, B, 4)
+	mustWinGames(t, m, A, 6)
+	if !m.Done || m.Winner == nil || *m.Winner != A {
+		t.Fatalf("setup: Done=%v Winner=%v", m.Done, m.Winner)
+	}
+
+	c := m.Clone()
+	if !c.Done || c.Winner == nil || *c.Winner != A {
+		t.Fatalf("clone Done=%v Winner=%v", c.Done, c.Winner)
+	}
+	if c.Winner == m.Winner {
+		t.Fatal("Winner pointer should not be shared")
+	}
+}
+
 func TestMatch_Clone_completedSetsAndWinner(t *testing.T) {
-	t.Parallel()
 
 	fmt := DefaultFormat()
 	fmt.SetsToWin = 3

@@ -4,10 +4,11 @@ import "time"
 
 // PlayerStats holds parsed Tennis Abstract player page data.
 type PlayerStats struct {
-	PlayerSlug       string
-	RecentResults    []RecentResult
-	TourLevelSeasons []TourLevelSeason
-	FetchedAt        time.Time // set by client on successful fetch
+	PlayerSlug         string
+	RecentResults      []RecentResult
+	TourLevelSeasons   []TourLevelSeason
+	ChallengerSeasons  []TourLevelSeason // same columns as tour-level; optional on TA pages
+	FetchedAt          time.Time         // set by client on successful fetch
 }
 
 // RecentResult is one row from the Recent Results table.

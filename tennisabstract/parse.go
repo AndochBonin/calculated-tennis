@@ -1,6 +1,7 @@
 package tennisabstract
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -12,8 +13,9 @@ import (
 )
 
 const (
-	sectionRecentResults    = "Recent Results"
-	sectionTourLevelSeasons = "Tour-Level Seasons"
+	sectionRecentResults      = "Recent Results"
+	sectionTourLevelSeasons   = "Tour-Level Seasons"
+	sectionChallengerSeasons  = "Challenger Seasons"
 )
 
 var recentResultsColumns = []string{
@@ -27,8 +29,9 @@ var tourLevelColumns = []string{
 	"SPW", "RPW", "TPW", "DR", "Best",
 }
 
-// ParsePlayerHTML extracts Recent Results and Tour-Level Seasons from a Tennis
-// Abstract player page (or HTML fragment containing those sections).
+// ParsePlayerHTML extracts Recent Results, Tour-Level Seasons, and optional
+// Challenger Seasons from a Tennis Abstract player page (or HTML fragment
+// containing those sections).
 func ParsePlayerHTML(r io.Reader, playerSlug string) (models.PlayerStats, error) {
 	doc, err := goquery.NewDocumentFromReader(r)
 	if err != nil {
@@ -43,11 +46,16 @@ func ParsePlayerHTML(r io.Reader, playerSlug string) (models.PlayerStats, error)
 	if err != nil {
 		return models.PlayerStats{}, err
 	}
+	challenger, err := parseChallengerSeasonsTable(doc)
+	if err != nil {
+		return models.PlayerStats{}, err
+	}
 
 	return models.PlayerStats{
-		PlayerSlug:       playerSlug,
-		RecentResults:    recent,
-		TourLevelSeasons: seasons,
+		PlayerSlug:         playerSlug,
+		RecentResults:      recent,
+		TourLevelSeasons:   seasons,
+		ChallengerSeasons:  challenger,
 	}, nil
 }
 
@@ -101,13 +109,28 @@ func parseRecentResultsTable(doc *goquery.Document) ([]models.RecentResult, erro
 }
 
 func parseTourLevelSeasonsTable(doc *goquery.Document) ([]models.TourLevelSeason, error) {
-	table, err := tableAfterHeading(doc, sectionTourLevelSeasons)
+	return parseSeasonsTable(doc, sectionTourLevelSeasons, "tour-level seasons")
+}
+
+func parseChallengerSeasonsTable(doc *goquery.Document) ([]models.TourLevelSeason, error) {
+	rows, err := parseSeasonsTable(doc, sectionChallengerSeasons, "challenger seasons")
 	if err != nil {
-		return nil, fmt.Errorf("tour-level seasons: %w", err)
+		if errors.Is(err, ErrTableNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return rows, nil
+}
+
+func parseSeasonsTable(doc *goquery.Document, sectionTitle, label string) ([]models.TourLevelSeason, error) {
+	table, err := tableAfterHeading(doc, sectionTitle)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", label, err)
 	}
 	cols, err := headerIndex(table, tourLevelColumns)
 	if err != nil {
-		return nil, fmt.Errorf("tour-level seasons: %w", err)
+		return nil, fmt.Errorf("%s: %w", label, err)
 	}
 
 	var rows []models.TourLevelSeason

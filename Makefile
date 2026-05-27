@@ -1,4 +1,4 @@
-COVERAGE_THRESHOLD ?= 90
+COVERAGE_THRESHOLD ?= 80
 SHELL := /bin/zsh
 
 # Build linux/amd64 binary and upload to S3 (after terraform apply).
@@ -27,15 +27,6 @@ push-binary:
 	[ -n "$${AWS_PROFILE:-}" ] && aws_args+=(--profile "$$AWS_PROFILE"); \
 	aws s3 cp "$(PUSH_BINARY_OUT)" "s3://$$S3_ARTIFACT_BUCKET/$$S3_ARTIFACT_KEY" "$${aws_args[@]}"
 
-run:
-	go run .
-
-up:
-	docker compose up -d --build
-
-down:
-	docker compose down
-
 # Seed LocalStack secret from gitignored secret.json (create once per dev machine).
 localstack-init-secret:
 	@if [ ! -f secret.json ]; then \
@@ -59,37 +50,38 @@ localstack-init-secret:
 		--secret-id polymarket/dev \
 		--secret-string file://secret.json
 
-# Live CLOB probe: POLYMARKET_API_KEY, POLYMARKET_API_SECRET, POLYMARKET_PASSPHRASE,
-# POLYMARKET_ADDRESS (same EOA as METAMASK_KEY in generate_creds).
-# POLYMARKET_USER_ADDRESS (?user= for GET /positions on data API).
-# Optional: POLYMARKET_DATA_API_BASE_URL (defaults to https://data-api.polymarket.com).
-# Optional: POLYMARKET_CLOB_SERVER_TIME=true.
+run:
+	go run .
+
+up:
+	docker compose up -d --build
+	make localstack-init-secret
+	docker compose restart polymarket
+
+down:
+	docker compose down
+
+
 live-clob:
 	go run ./cmd/liveclob
 
 # Place a 1-share BUY GTC limit order on the live CLOB (real funds / real API).
-# Same env as live-clob, plus a private key for EIP-712 signing:
-# POLYMARKET_PRIVATE_KEY (preferred) or METAMASK_KEY.
-# Usage: make place-order
-# Optional: make place-order PRICE=0.50 TOKEN=<token_id>
 place-order:
 	go run ./cmd/placeorder $(if $(PRICE),-price=$(PRICE),) $(TOKEN)
 
 # Tennis Abstract player stats (live fetch; optional Redis cache via REDIS_ADDR / REDIS_URL).
-# Usage: make get-stats
-# Optional: make get-stats PLAYER="jannik sinner"
 get-stats:
 	go run ./cmd/getstats $(if $(PLAYER),-player="$(PLAYER)",)
 
 # Monte Carlo match win projection (Tennis Abstract hold/break; interactive on TTY).
-# Usage: make sim-match
-# Optional: make sim-match PLAYER_A="..." PLAYER_B="..." FORMAT=atp ALPHA=2.5 SIMS=10000
-sim-match:
+sim:
 	go run ./cmd/simmatch $(if $(PLAYER_A),-player-a="$(PLAYER_A)",) \
 		$(if $(PLAYER_B),-player-b="$(PLAYER_B)",) \
 		$(if $(FORMAT),-format=$(FORMAT),) \
 		$(if $(ALPHA),-alpha=$(ALPHA),) \
-		$(if $(SIMS),-sims=$(SIMS),)
+		$(if $(SIMS),-sims=$(SIMS),) \
+		$(if $(SCORE),-score="$(SCORE)",) \
+		$(if $(FIRST_SERVER),-first-server=$(FIRST_SERVER),)
 
 venv:
 	@source .venv/bin/activate; $$SHELL

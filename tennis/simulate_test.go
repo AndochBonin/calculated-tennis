@@ -56,7 +56,6 @@ func assertMatchUnchanged(t *testing.T, m *Match, before func() (int, int, int, 
 }
 
 func TestSimulate_deterministicRNG(t *testing.T) {
-	t.Parallel()
 
 	rates := [2]PlayerRates{
 		{HoldPct: 0.62, BreakPct: 0.38},
@@ -89,7 +88,6 @@ func TestSimulate_deterministicRNG(t *testing.T) {
 }
 
 func TestSimulate_zeroSimulations(t *testing.T) {
-	t.Parallel()
 
 	m := NewMatch(A)
 	rng := rand.New(rand.NewPCG(1, 1))
@@ -103,7 +101,6 @@ func TestSimulate_zeroSimulations(t *testing.T) {
 }
 
 func TestSimulate_completedMatch(t *testing.T) {
-	t.Parallel()
 
 	fmt := DefaultFormat()
 	fmt.SetsToWin = 1
@@ -121,7 +118,6 @@ func TestSimulate_completedMatch(t *testing.T) {
 }
 
 func TestSimulate_midMatch_fiveFour(t *testing.T) {
-	t.Parallel()
 
 	m := NewMatch(A)
 	gamesToFiveFour(t, m, A)
@@ -145,7 +141,6 @@ func TestSimulate_midMatch_fiveFour(t *testing.T) {
 }
 
 func TestSimulate_midMatch_sixSixTiebreak(t *testing.T) {
-	t.Parallel()
 
 	m := NewMatch(A)
 	gamesToSixSix(t, m)
@@ -172,7 +167,6 @@ func TestSimulate_midMatch_sixSixTiebreak(t *testing.T) {
 }
 
 func TestSimulate_immutability(t *testing.T) {
-	t.Parallel()
 
 	m := NewMatch(B)
 	mustWinGames(t, m, A, 3)
@@ -204,7 +198,6 @@ func TestSimulate_immutability(t *testing.T) {
 }
 
 func TestSimulate_dominantServerRates(t *testing.T) {
-	t.Parallel()
 
 	// A always holds; A always breaks B's serve (B hold 0, A break 1).
 	rates := [2]PlayerRates{
@@ -223,7 +216,6 @@ func TestSimulate_dominantServerRates(t *testing.T) {
 }
 
 func TestFirstServerCoinToss_deterministicRNG(t *testing.T) {
-	t.Parallel()
 
 	rng := rand.New(rand.NewPCG(42, 7))
 	var seq []Player
@@ -248,7 +240,6 @@ func TestFirstServerCoinToss_deterministicRNG(t *testing.T) {
 }
 
 func TestFirstServerCoinToss_bothSidesAppear(t *testing.T) {
-	t.Parallel()
 
 	rng := rand.New(rand.NewPCG(1, 2))
 	var sawA, sawB bool
@@ -272,7 +263,6 @@ func TestFirstServerCoinToss_bothSidesAppear(t *testing.T) {
 }
 
 func TestFirstServerCoinToss_nilRNG(t *testing.T) {
-	t.Parallel()
 
 	_, err := FirstServerCoinToss(nil)
 	if !errors.Is(err, ErrNilRNG) {
@@ -281,7 +271,6 @@ func TestFirstServerCoinToss_nilRNG(t *testing.T) {
 }
 
 func TestSimulateFresh_deterministicRNG(t *testing.T) {
-	t.Parallel()
 
 	rates := [2]PlayerRates{
 		{HoldPct: 0.62, BreakPct: 0.38},
@@ -314,7 +303,6 @@ func TestSimulateFresh_deterministicRNG(t *testing.T) {
 }
 
 func TestSimulateFresh_zeroSimulations(t *testing.T) {
-	t.Parallel()
 
 	rng := rand.New(rand.NewPCG(1, 1))
 	result, err := SimulateFresh(DefaultFormat(), [2]PlayerRates{{0.5, 0.5}, {0.5, 0.5}}, 2, 0, rng)
@@ -327,7 +315,6 @@ func TestSimulateFresh_zeroSimulations(t *testing.T) {
 }
 
 func TestSimulateFresh_dominantServerRates(t *testing.T) {
-	t.Parallel()
 
 	rates := [2]PlayerRates{
 		{HoldPct: 1, BreakPct: 1},
@@ -344,7 +331,6 @@ func TestSimulateFresh_dominantServerRates(t *testing.T) {
 }
 
 func TestSimulateFresh_validation(t *testing.T) {
-	t.Parallel()
 
 	validRates := [2]PlayerRates{{0.5, 0.5}, {0.5, 0.5}}
 	rng := rand.New(rand.NewPCG(1, 1))
@@ -367,7 +353,6 @@ func TestSimulateFresh_validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
 			_, err := SimulateFresh(format, tt.rates, tt.alpha, tt.n, tt.rng)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("SimulateFresh() error = %v, want %v", err, tt.wantErr)
@@ -377,7 +362,6 @@ func TestSimulateFresh_validation(t *testing.T) {
 }
 
 func TestSimulate_validation(t *testing.T) {
-	t.Parallel()
 
 	validRates := [2]PlayerRates{{0.5, 0.5}, {0.5, 0.5}}
 	rng := rand.New(rand.NewPCG(1, 1))
@@ -402,11 +386,100 @@ func TestSimulate_validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
 			_, err := Simulate(tt.initial, tt.rates, tt.alpha, tt.n, tt.rng)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("Simulate() error = %v, want %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestApplySimulatedPoint_errors(t *testing.T) {
+
+	t.Run("WinGame match complete", func(t *testing.T) {
+		m := NewMatch(A)
+		m.Done = true
+		err := applySimulatedPoint(m, A)
+		if !errors.Is(err, ErrMatchComplete) {
+			t.Fatalf("applySimulatedPoint = %v, want %v", err, ErrMatchComplete)
+		}
+	})
+
+	t.Run("WinTiebreakPoint match complete", func(t *testing.T) {
+		m := NewMatch(A)
+		gamesToSixSix(t, m)
+		m.Done = true
+		err := applySimulatedPoint(m, A)
+		if !errors.Is(err, ErrMatchComplete) {
+			t.Fatalf("applySimulatedPoint = %v, want %v", err, ErrMatchComplete)
+		}
+	})
+}
+
+func TestRunOnce_errors(t *testing.T) {
+	rates := [2]PlayerRates{{0.6, 0.4}, {0.6, 0.4}}
+	rng := rand.New(rand.NewPCG(1, 2))
+
+	t.Run("invalid alpha", func(t *testing.T) {
+		m := NewMatch(A)
+		_, err := runOnce(m, rates, -1, rng)
+		if !errors.Is(err, ErrInvalidAlpha) {
+			t.Fatalf("runOnce = %v, want %v", err, ErrInvalidAlpha)
+		}
+	})
+}
+
+func TestRunOnce_applySimulatedPointError(t *testing.T) {
+	rates := [2]PlayerRates{{0.6, 0.4}, {0.6, 0.4}}
+	rng := rand.New(rand.NewPCG(1, 2))
+
+	m := NewMatch(A)
+	m.Current.Phase = Phase(99)
+	_, err := runOnce(m, rates, 2, rng)
+	if !errors.Is(err, ErrWrongPhase) {
+		t.Fatalf("runOnce = %v, want %v", err, ErrWrongPhase)
+	}
+}
+
+func TestSimulate_runOnceErrorPropagation(t *testing.T) {
+	old := runOnceSim
+	runOnceSim = func(*Match, [2]PlayerRates, float64, *rand.Rand) (Player, error) {
+		return 0, ErrWrongPhase
+	}
+	t.Cleanup(func() { runOnceSim = old })
+
+	m := NewMatch(A)
+	rng := rand.New(rand.NewPCG(1, 2))
+	_, err := Simulate(m, [2]PlayerRates{{0.5, 0.5}, {0.5, 0.5}}, 2, 1, rng)
+	if !errors.Is(err, ErrWrongPhase) {
+		t.Fatalf("Simulate = %v, want %v", err, ErrWrongPhase)
+	}
+}
+
+func TestSimulateFresh_runOnceError(t *testing.T) {
+	old := runOnceSim
+	runOnceSim = func(*Match, [2]PlayerRates, float64, *rand.Rand) (Player, error) {
+		return 0, ErrWrongPhase
+	}
+	t.Cleanup(func() { runOnceSim = old })
+
+	rng := rand.New(rand.NewPCG(1, 2))
+	_, err := SimulateFresh(DefaultFormat(), [2]PlayerRates{{0.5, 0.5}, {0.5, 0.5}}, 2, 1, rng)
+	if !errors.Is(err, ErrWrongPhase) {
+		t.Fatalf("SimulateFresh = %v, want %v", err, ErrWrongPhase)
+	}
+}
+
+func TestSimulateFresh_firstServerError(t *testing.T) {
+	old := firstServerCoinToss
+	firstServerCoinToss = func(*rand.Rand) (Player, error) {
+		return 0, ErrNilRNG
+	}
+	t.Cleanup(func() { firstServerCoinToss = old })
+
+	rng := rand.New(rand.NewPCG(1, 2))
+	_, err := SimulateFresh(DefaultFormat(), [2]PlayerRates{{0.5, 0.5}, {0.5, 0.5}}, 2, 1, rng)
+	if !errors.Is(err, ErrNilRNG) {
+		t.Fatalf("SimulateFresh = %v, want %v", err, ErrNilRNG)
 	}
 }

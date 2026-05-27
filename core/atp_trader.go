@@ -62,6 +62,9 @@ func FilterATPMarkets(markets []models.GammaMarket) []models.GammaMarket {
 		if !m.EnableOrderBook || !strings.HasPrefix(m.Slug, "atp-") {
 			continue
 		}
+		if strings.Contains(strings.ToLower(m.Slug), "doubles") {
+			continue
+		}
 		var tokenIDs []string
 		if err := json.Unmarshal([]byte(m.ClobTokenIds), &tokenIDs); err != nil || len(tokenIDs) == 0 {
 			continue
