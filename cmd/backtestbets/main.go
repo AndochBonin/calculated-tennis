@@ -1,4 +1,4 @@
-// Walk 2025 ATP matches with odds: simulate, bet when sim win rate clears -min-pick.
+// Walk 2025 ATP matches with odds: sim strategy vs always-bet-favorite baseline.
 //
 // Run (from repo root):
 //
@@ -12,7 +12,6 @@ package main
 import (
 	"errors"
 	"flag"
-	"fmt"
 	"log/slog"
 	"os"
 
@@ -55,27 +54,13 @@ func exitRun() int {
 		Log:         log,
 	}
 
-	stats, err := RunBacktest(cfg)
+	result, err := RunBacktests(cfg)
 	if err != nil {
 		log.Error("backtest failed", "err", err)
 		return 1
 	}
 
-	fmt.Printf("final_balance=%.2f\n", stats.FinalBalance)
-	fmt.Printf("gross_profit=%.2f gross_loss=%.2f\n", stats.GrossProfit, stats.GrossLoss)
-	fmt.Printf("bets=%d wins=%d losses=%d skipped=%d\n",
-		stats.Bets, stats.Wins, stats.Losses, stats.Skipped)
-
-	log.Info("backtest done",
-		"final_balance", stats.FinalBalance,
-		"gross_profit", stats.GrossProfit,
-		"gross_loss", stats.GrossLoss,
-		"bets", stats.Bets,
-		"wins", stats.Wins,
-		"losses", stats.Losses,
-		"skipped", stats.Skipped,
-		"matches_walked", stats.MatchesWalk,
-	)
+	printBacktestResults(os.Stdout, result, cfg.Stake)
 
 	return 0
 }

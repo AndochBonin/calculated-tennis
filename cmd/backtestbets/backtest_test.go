@@ -30,49 +30,66 @@ func TestRunBacktest_smoke(t *testing.T) {
 		Seed:        42,
 	}
 
-	stats1, err := RunBacktest(cfg)
+	res1, err := RunBacktests(cfg)
 	if err != nil {
-		t.Fatalf("RunBacktest: %v", err)
+		t.Fatalf("RunBacktests: %v", err)
 	}
-	stats2, err := RunBacktest(cfg)
+	res2, err := RunBacktests(cfg)
 	if err != nil {
-		t.Fatalf("RunBacktest repeat: %v", err)
+		t.Fatalf("RunBacktests repeat: %v", err)
 	}
-	if stats1 != stats2 {
-		t.Fatalf("non-deterministic: %+v vs %+v", stats1, stats2)
+	if res1.Sim != res2.Sim {
+		t.Fatalf("non-deterministic sim: %+v vs %+v", res1.Sim, res2.Sim)
 	}
-	if stats1.MatchesWalk != 2 {
-		t.Fatalf("MatchesWalk = %d, want 2", stats1.MatchesWalk)
+	if res1.Favorite != res2.Favorite {
+		t.Fatalf("non-deterministic favorite: %+v vs %+v", res1.Favorite, res2.Favorite)
 	}
-	if stats1.Bets+stats1.Skipped != stats1.MatchesWalk {
-		t.Fatalf("bets(%d)+skipped(%d) != walked(%d)", stats1.Bets, stats1.Skipped, stats1.MatchesWalk)
+
+	stats := res1.Sim
+	if stats.MatchesWalk != 2 {
+		t.Fatalf("MatchesWalk = %d, want 2", stats.MatchesWalk)
 	}
-	if stats1.Wins+stats1.Losses != stats1.Bets {
-		t.Fatalf("wins(%d)+losses(%d) != bets(%d)", stats1.Wins, stats1.Losses, stats1.Bets)
+	if stats.Bets+stats.Skipped != stats.MatchesWalk {
+		t.Fatalf("bets(%d)+skipped(%d) != walked(%d)", stats.Bets, stats.Skipped, stats.MatchesWalk)
 	}
-	if stats1.GrossProfit-stats1.GrossLoss != stats1.FinalBalance {
+	if stats.Wins+stats.Losses != stats.Bets {
+		t.Fatalf("wins(%d)+losses(%d) != bets(%d)", stats.Wins, stats.Losses, stats.Bets)
+	}
+	if stats.GrossProfit-stats.GrossLoss != stats.FinalBalance {
 		t.Fatalf("gross_profit(%.2f) - gross_loss(%.2f) != final_balance(%.2f)",
-			stats1.GrossProfit, stats1.GrossLoss, stats1.FinalBalance)
+			stats.GrossProfit, stats.GrossLoss, stats.FinalBalance)
+	}
+
+	fav := res1.Favorite
+	if fav.MatchesWalk != stats.MatchesWalk {
+		t.Fatalf("favorite MatchesWalk = %d, sim = %d", fav.MatchesWalk, stats.MatchesWalk)
+	}
+	if fav.Skipped != stats.Skipped {
+		t.Fatalf("favorite skipped = %d, sim skipped = %d (must match)", fav.Skipped, stats.Skipped)
+	}
+	if fav.Bets != stats.Bets {
+		t.Fatalf("favorite bets = %d, sim bets = %d (must match)", fav.Bets, stats.Bets)
 	}
 }
 
-func TestSettleHistoricalBet(t *testing.T) {
+func TestSettleBet(t *testing.T) {
 	t.Parallel()
 
+	winner := tennisabstract.BetSideA
 	tests := []struct {
-		side, stake, odds float64
-		want              float64
+		picked, actual tennisabstract.BetSide
+		stake, odds    float64
+		want           float64
 	}{
-		{side: 1, stake: 1, odds: 2.0, want: 2.0},
-		{side: 1, stake: 5, odds: 1.8, want: 9.0},
-		{side: 2, stake: 1, odds: 3.0, want: -1},
-		{side: 2, stake: 2.5, odds: 3.0, want: -2.5},
+		{picked: winner, actual: winner, stake: 1, odds: 2.0, want: 2.0},
+		{picked: winner, actual: winner, stake: 5, odds: 1.8, want: 9.0},
+		{picked: tennisabstract.BetSideB, actual: winner, stake: 1, odds: 3.0, want: -1},
+		{picked: tennisabstract.BetSideB, actual: winner, stake: 2.5, odds: 3.0, want: -2.5},
 	}
 	for _, tc := range tests {
-		got := settleHistoricalBet(tennisabstract.BetSide(tc.side), tc.odds, tc.stake)
+		got := settleBet(tc.picked, tc.actual, tc.odds, tc.stake)
 		if got != tc.want {
-			t.Errorf("settleHistoricalBet(side=%v, odds=%v, stake=%v) = %v, want %v",
-				tc.side, tc.odds, tc.stake, got, tc.want)
+			t.Errorf("settleBet = %v, want %v", got, tc.want)
 		}
 	}
 }

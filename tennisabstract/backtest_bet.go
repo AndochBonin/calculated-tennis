@@ -39,3 +39,15 @@ func DecideBet(winsA, sims int, minPick float64, avgW, avgL float64) (side BetSi
 	}
 	return BetSideNone, 0, true
 }
+
+// DecideFavoriteBet backs the pre-match favorite (lower decimal odds).
+// Ties on avgW == avgL resolve to player A. ok is false when either odd is non-positive.
+func DecideFavoriteBet(avgW, avgL float64) (side BetSide, odds float64, ok bool) {
+	if avgW <= 0 || avgL <= 0 {
+		return BetSideNone, 0, false
+	}
+	if avgL < avgW {
+		return BetSideB, avgL, true
+	}
+	return BetSideA, avgW, true
+}

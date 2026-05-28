@@ -38,37 +38,77 @@ type BacktestStats struct {
 	Bets         int
 	Wins         int
 	Losses       int
-	Skipped      int // walked matches with no bet (threshold or DecideBet failure)
+	Skipped      int // walked matches with no bet
 	MatchesWalk  int
 }
 
-// RunBacktest loads data, walks matches in chronological order, and returns P&L stats.
+// BacktestRunResult holds sim strategy and favorite baseline stats.
+// Favorite uses the same bet/no-bet decisions as sim (min-pick); only the side differs.
+type BacktestRunResult struct {
+	Sim      BacktestStats
+	Favorite BacktestStats
+}
+
+// RunBacktests walks eligible matches once: sim bets when min-pick clears; favorite
+// bets the market favorite on the same matches (skips when sim skips).
+func RunBacktests(cfg BacktestConfig) (BacktestRunResult, error) {
+	if err := (&cfg).validate(); err != nil {
+		return BacktestRunResult{}, err
+	}
+
+	eligible, err := loadEligibleMatches(cfg)
+	if err != nil {
+		return BacktestRunResult{}, err
+	}
+
+	return walkBacktests(cfg, eligible)
+}
+
+// RunBacktest runs only the sim strategy (kept for tests).
 func RunBacktest(cfg BacktestConfig) (BacktestStats, error) {
+	res, err := RunBacktests(cfg)
+	if err != nil {
+		return BacktestStats{}, err
+	}
+	return res.Sim, nil
+}
+
+func (cfg *BacktestConfig) validate() error {
 	if cfg.Sims <= 0 {
-		return BacktestStats{}, fmt.Errorf("sims must be positive")
+		return fmt.Errorf("sims must be positive")
 	}
 	if cfg.Alpha <= 0 {
-		return BacktestStats{}, fmt.Errorf("alpha must be positive")
+		return fmt.Errorf("alpha must be positive")
 	}
 	if cfg.MinPick <= 0 || cfg.MinPick > 1 {
-		return BacktestStats{}, fmt.Errorf("min-pick must be in (0,1]")
+		return fmt.Errorf("min-pick must be in (0,1]")
 	}
 	if cfg.Stake == 0 {
 		cfg.Stake = 1
 	}
 	if cfg.Stake <= 0 {
-		return BacktestStats{}, fmt.Errorf("stake must be positive")
+		return fmt.Errorf("stake must be positive")
 	}
+	return nil
+}
 
+func (cfg *BacktestConfig) normalizedStake() float64 {
+	if cfg.Stake == 0 {
+		return 1
+	}
+	return cfg.Stake
+}
+
+func loadEligibleMatches(cfg BacktestConfig) ([]tennisabstract.MatchWithOdds, error) {
 	log := cfg.log()
 
 	rows, err := tennisabstract.LoadMatchesWithOddsCSVFile(cfg.MatchesPath)
 	if err != nil {
-		return BacktestStats{}, fmt.Errorf("load matches: %w", err)
+		return nil, fmt.Errorf("load matches: %w", err)
 	}
 	rates, err := tennisabstract.ReadPlayerRatesFile(cfg.RatesPath)
 	if err != nil {
-		return BacktestStats{}, fmt.Errorf("load rates: %w", err)
+		return nil, fmt.Errorf("load rates: %w", err)
 	}
 
 	eligible := tennisabstract.FilterBacktestMatches(rows, rates)
@@ -79,47 +119,74 @@ func RunBacktest(cfg BacktestConfig) (BacktestStats, error) {
 		return eligible[i].MatchNum < eligible[j].MatchNum
 	})
 	log.Info("eligible matches", "count", len(eligible), "filtered_out", len(rows)-len(eligible))
+	return eligible, nil
+}
+
+func walkBacktests(cfg BacktestConfig, eligible []tennisabstract.MatchWithOdds) (BacktestRunResult, error) {
+	stake := cfg.normalizedStake()
+	rates, err := tennisabstract.ReadPlayerRatesFile(cfg.RatesPath)
+	if err != nil {
+		return BacktestRunResult{}, fmt.Errorf("load rates: %w", err)
+	}
 
 	rng := rand.New(rand.NewPCG(cfg.Seed, mixSeed(cfg.Seed)))
 
-	var stats BacktestStats
-	stats.MatchesWalk = len(eligible)
+	var out BacktestRunResult
+	out.Sim.MatchesWalk = len(eligible)
+	out.Favorite.MatchesWalk = len(eligible)
 
 	for _, m := range eligible {
 		playerRates, ok := matchPlayerRates(m, rates)
 		if !ok {
-			stats.Skipped++
+			out.Sim.Skipped++
+			out.Favorite.Skipped++
 			continue
 		}
 
 		result, err := tennis.SimulateFresh(m.Format, playerRates, cfg.Alpha, cfg.Sims, rng)
 		if err != nil {
-			return stats, fmt.Errorf("simulate %s vs %s: %w", m.PlayerA, m.PlayerB, err)
+			return out, fmt.Errorf("simulate %s vs %s: %w", m.PlayerA, m.PlayerB, err)
 		}
 
 		winsA := result.WinCount(tennis.A)
-		side, odds, ok := tennisabstract.DecideBet(winsA, cfg.Sims, cfg.MinPick, m.AvgW, m.AvgL)
+		simSide, simOdds, ok := tennisabstract.DecideBet(winsA, cfg.Sims, cfg.MinPick, m.AvgW, m.AvgL)
 		if !ok {
-			return stats, fmt.Errorf("decide bet %s vs %s: invalid inputs", m.PlayerA, m.PlayerB)
+			return out, fmt.Errorf("decide bet %s vs %s: invalid inputs", m.PlayerA, m.PlayerB)
 		}
-		if side == tennisabstract.BetSideNone {
-			stats.Skipped++
+		if simSide == tennisabstract.BetSideNone {
+			out.Sim.Skipped++
+			out.Favorite.Skipped++
 			continue
 		}
 
-		stats.Bets++
-		pnl := settleHistoricalBet(side, odds, cfg.Stake)
-		stats.FinalBalance += pnl
-		if pnl > 0 {
-			stats.Wins++
-			stats.GrossProfit += pnl
-		} else {
-			stats.Losses++
-			stats.GrossLoss += -pnl
+		applyBet(&out.Sim, simSide, simOdds, stake, historicalWinnerSide())
+
+		favSide, favOdds, ok := tennisabstract.DecideFavoriteBet(m.AvgW, m.AvgL)
+		if !ok {
+			return out, fmt.Errorf("favorite bet %s vs %s: invalid odds", m.PlayerA, m.PlayerB)
 		}
+		applyBet(&out.Favorite, favSide, favOdds, stake, historicalWinnerSide())
 	}
 
-	return stats, nil
+	return out, nil
+}
+
+// historicalWinnerSide is the match winner in Sackmann rows (winner_name = player A).
+func historicalWinnerSide() tennisabstract.BetSide {
+	return tennisabstract.BetSideA
+}
+
+func applyBet(stats *BacktestStats, picked tennisabstract.BetSide, odds, stake float64, actualWinner tennisabstract.BetSide) {
+	stats.Bets++
+	pnl := settleBet(picked, actualWinner, odds, stake)
+	stats.FinalBalance += pnl
+	if pnl > 0 {
+		stats.Wins++
+		stats.GrossProfit += pnl
+	} else {
+		stats.Losses++
+		stats.GrossLoss += -pnl
+	}
 }
 
 func mixSeed(seed uint64) uint64 {
@@ -138,14 +205,10 @@ func matchPlayerRates(m tennisabstract.MatchWithOdds, rates tennisabstract.Playe
 	}, true
 }
 
-// settleHistoricalBet applies P&L for a completed match where player A (CSV winner) won.
-func settleHistoricalBet(side tennisabstract.BetSide, odds, stake float64) float64 {
-	switch side {
-	case tennisabstract.BetSideA:
+// settleBet credits stake×decimal odds when the picked player won; otherwise −stake.
+func settleBet(picked, actualWinner tennisabstract.BetSide, odds, stake float64) float64 {
+	if picked == actualWinner {
 		return stake * odds
-	case tennisabstract.BetSideB:
-		return -stake
-	default:
-		return 0
 	}
+	return -stake
 }

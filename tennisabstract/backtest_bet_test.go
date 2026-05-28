@@ -104,3 +104,40 @@ func TestDecideBet(t *testing.T) {
 		})
 	}
 }
+
+func TestDecideFavoriteBet(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		avgW    float64
+		avgL    float64
+		want    BetSide
+		wantOdd float64
+		wantOK  bool
+	}{
+		{name: "A favorite", avgW: 1.4, avgL: 2.8, want: BetSideA, wantOdd: 1.4, wantOK: true},
+		{name: "B favorite", avgW: 2.5, avgL: 1.6, want: BetSideB, wantOdd: 1.6, wantOK: true},
+		{name: "tie picks A", avgW: 1.9, avgL: 1.9, want: BetSideA, wantOdd: 1.9, wantOK: true},
+		{name: "invalid avgW", avgW: 0, avgL: 2.0, wantOK: false},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			gotSide, gotOdd, gotOK := DecideFavoriteBet(tc.avgW, tc.avgL)
+			if gotOK != tc.wantOK {
+				t.Fatalf("ok = %v, want %v", gotOK, tc.wantOK)
+			}
+			if !tc.wantOK {
+				return
+			}
+			if gotSide != tc.want {
+				t.Errorf("side = %v, want %v", gotSide, tc.want)
+			}
+			if gotOdd != tc.wantOdd {
+				t.Errorf("odds = %v, want %v", gotOdd, tc.wantOdd)
+			}
+		})
+	}
+}
