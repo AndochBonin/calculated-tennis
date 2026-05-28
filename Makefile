@@ -84,6 +84,13 @@ calibrate-alpha:
 	@test -f tennisabstract/testdata/player_rates_2024.json || $(MAKE) fetch-rates
 	go run ./cmd/calibratealpha
 
+# Chronological 2025 backtest (interactive on TTY; pass STAKE/MIN_PICK/SIMS to skip prompts).
+backtest-bets:
+	@test -f tennisabstract/testdata/player_rates_2024.json || $(MAKE) fetch-rates
+	go run ./cmd/backtestbets $(if $(MIN_PICK),-min-pick=$(MIN_PICK),) \
+		$(if $(STAKE),-stake=$(STAKE),) \
+		$(if $(SIMS),-sims=$(SIMS),)
+
 # Monte Carlo match win projection (Tennis Abstract hold/break; interactive on TTY).
 sim:
 	go run ./cmd/simmatch $(if $(PLAYER_A),-player-a="$(PLAYER_A)",) \
