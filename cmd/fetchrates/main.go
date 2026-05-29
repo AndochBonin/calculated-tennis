@@ -8,7 +8,9 @@
 // Or: make fetch-rates
 //
 // Optional env: REDIS_ADDR or REDIS_URL (enables Redis cache when set; otherwise no cache),
-// TENNISABSTRACT_CACHE_TTL (e.g. "6h", default 6h when cache is enabled).
+// TENNISABSTRACT_CACHE_TTL (e.g. "6h", default 6h when cache is enabled),
+// TENNISABSTRACT_REQUEST_INTERVAL (default 2s), TENNISABSTRACT_HTTP_MAX_RETRIES,
+// TENNISABSTRACT_HTTP_BACKOFF (429 retry).
 //
 // Use -merge to keep existing slugs in -out and only fetch missing players.
 package main
@@ -66,7 +68,7 @@ func exitRun() int {
 		}
 	}
 
-	opts := []tennisabstract.Option{}
+	opts := tennisabstract.HTTPClientOptionsFromEnv()
 	if cacheConfigured() {
 		cache, err := tennisabstract.NewRedisCacheFromEnv()
 		if err != nil {

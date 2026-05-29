@@ -13,11 +13,11 @@ import (
 )
 
 const (
-	csvColWinnerName = "winner_name"
-	csvColLoserName  = "loser_name"
-	csvColSurface    = "surface"
-	csvColScore      = "score"
-	csvColBestOf     = "best_of"
+	csvColWinnerName  = "winner_name"
+	csvColLoserName   = "loser_name"
+	csvColSurface     = "surface"
+	csvColScore       = "score"
+	csvColBestOf = "best_of"
 )
 
 // MatchSurface is a normalized court surface from Sackmann ATP match CSVs.
@@ -40,6 +40,7 @@ type CalibrationMatch struct {
 	Format      tennis.MatchFormat
 	Score       string
 	BestOf      int
+	TourneyDate int // YYYYMMDD
 }
 
 // CalibrationMatchesLoad holds eligible matches grouped by surface and skip counts.
@@ -119,20 +120,22 @@ const (
 )
 
 type calibrationColumns struct {
-	winnerName int
-	loserName  int
-	surface    int
-	score      int
-	bestOf     int
+	winnerName  int
+	loserName   int
+	surface     int
+	score       int
+	bestOf      int
+	tourneyDate int
 }
 
 func calibrationColumnIndices(header []string) (calibrationColumns, error) {
 	idx := calibrationColumns{
-		winnerName: -1,
-		loserName:  -1,
-		surface:    -1,
-		score:      -1,
-		bestOf:     -1,
+		winnerName:  -1,
+		loserName:   -1,
+		surface:     -1,
+		score:       -1,
+		bestOf:      -1,
+		tourneyDate: -1,
 	}
 	set := func(name string, target *int) {
 		for i, col := range header {
@@ -147,6 +150,7 @@ func calibrationColumnIndices(header []string) (calibrationColumns, error) {
 	set(csvColSurface, &idx.surface)
 	set(csvColScore, &idx.score)
 	set(csvColBestOf, &idx.bestOf)
+	set(csvColTourneyDate, &idx.tourneyDate)
 
 	missing := []string{}
 	if idx.winnerName < 0 {
@@ -163,6 +167,9 @@ func calibrationColumnIndices(header []string) (calibrationColumns, error) {
 	}
 	if idx.bestOf < 0 {
 		missing = append(missing, csvColBestOf)
+	}
+	if idx.tourneyDate < 0 {
+		missing = append(missing, csvColTourneyDate)
 	}
 	if len(missing) > 0 {
 		return calibrationColumns{}, fmt.Errorf("csv missing columns: %s", strings.Join(missing, ", "))
@@ -203,6 +210,11 @@ func parseCalibrationRow(row []string, idx calibrationColumns) (CalibrationMatch
 		return CalibrationMatch{}, skipInvalid, nil
 	}
 
+	tourneyDate, ok := parseTourneyDate(fieldAt(row, idx.tourneyDate))
+	if !ok {
+		return CalibrationMatch{}, skipInvalid, nil
+	}
+
 	return CalibrationMatch{
 		Surface:     surface,
 		PlayerA:     playerA,
@@ -212,6 +224,7 @@ func parseCalibrationRow(row []string, idx calibrationColumns) (CalibrationMatch
 		Format:      format,
 		Score:       score,
 		BestOf:      bestOf,
+		TourneyDate: tourneyDate,
 	}, skipNone, nil
 }
 

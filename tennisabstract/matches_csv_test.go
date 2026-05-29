@@ -65,13 +65,13 @@ func TestLoadCalibrationMatchesCSV_synthetic(t *testing.T) {
 	t.Parallel()
 
 	csv := strings.Join([]string{
-		"winner_name,loser_name,surface,score,best_of",
-		"Taylor Fritz,Tomas Machac,Hard,6-4 6-3,3",
-		"Daniil Medvedev,Novak Djokovic,Clay,6-7(4) 6-5 RET,3",
-		"Carlos Alcaraz,Jannik Sinner,Grass,W/O,3",
-		"Alexander Zverev,Rafael Nadal,Carpet,6-2 6-2,3",
-		"Roger Federer,Andy Murray,Hard,6-1 6-2,4",
-		"Felix Auger Aliassime,Hubert Hurkacz,Hard,7-5 6-4,5",
+		"winner_name,loser_name,surface,score,best_of,tourney_date",
+		"Taylor Fritz,Tomas Machac,Hard,6-4 6-3,3,20250110",
+		"Daniil Medvedev,Novak Djokovic,Clay,6-7(4) 6-5 RET,3,20250111",
+		"Carlos Alcaraz,Jannik Sinner,Grass,W/O,3,20250112",
+		"Alexander Zverev,Rafael Nadal,Carpet,6-2 6-2,3,20250113",
+		"Roger Federer,Andy Murray,Hard,6-1 6-2,4,20250114",
+		"Felix Auger Aliassime,Hubert Hurkacz,Hard,7-5 6-4,5,20250115",
 	}, "\n")
 
 	got, err := LoadCalibrationMatchesCSV(strings.NewReader(csv))
@@ -97,6 +97,9 @@ func TestLoadCalibrationMatchesCSV_synthetic(t *testing.T) {
 	}
 	if hard[0].Format != tennis.DefaultFormat() {
 		t.Fatal("best-of-3 should use DefaultFormat")
+	}
+	if hard[0].TourneyDate != 20250110 {
+		t.Fatalf("TourneyDate = %d, want 20250110", hard[0].TourneyDate)
 	}
 	if hard[1].BestOf != 5 || hard[1].Format != tennis.GrandSlamMenFormat() {
 		t.Fatalf("bo5 match: best_of=%d format=%+v", hard[1].BestOf, hard[1].Format)

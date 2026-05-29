@@ -44,7 +44,7 @@ func (c *Client) fetchPlayerHTML(ctx context.Context, slug string) (io.ReadClose
 	}
 	req.Header.Set("User-Agent", userAgent)
 
-	resp, err := c.http.Do(req)
+	resp, err := c.doHTTP(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch player page: %w", err)
 	}

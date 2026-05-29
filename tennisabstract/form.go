@@ -31,12 +31,14 @@ const (
 )
 
 // FormOptions tunes hold/break form adjustment; zero values use documented defaults.
+// FormWeightMax: unset (0 with no other tuning fields) → env/default 0.30; explicit 0
+// (e.g. calibration grid with HalfLifeMatches, FormRatioMin, and FormRatioMax set) → γ = 0.
 type FormOptions struct {
 	AsOf             time.Time // evaluation date; zero → FetchedAt or time.Now()
 	MinSeasonMatches int       // default 20: blend current + prior season when below
 	RecentMatchLimit int       // default 15: max recent rows with DR considered
 	HalfLifeMatches  float64   // default 5: exp decay half-life (index 0 = most recent)
-	FormWeightMax    float64   // default 0.30: cap γ (share from form-adjusted term)
+	FormWeightMax    float64   // cap γ; see package comment on explicit zero
 	FormRatioMin      float64 // default 0.92: clamp DR_form/DR_season
 	FormRatioMax      float64 // default 1.08
 	// ChallengerWeight multiplies challenger HoldPct, BreakPct, and DR before they enter the
@@ -162,7 +164,7 @@ func (o FormOptions) withDefaults() FormOptions {
 		// Exponential decay half-life in match index (0 = most recent).
 		o.HalfLifeMatches = positiveFloatFromEnv(formHalfLifeMatchesEnv, defaultHalfLifeMatches)
 	}
-	if o.FormWeightMax <= 0 {
+	if o.FormWeightMax < 0 || (o.FormWeightMax == 0 && !formWeightMaxExplicitZero(o)) {
 		// Upper bound on γ, the share from form-adjusted hold/break.
 		o.FormWeightMax = positiveFloatFromEnv(formWeightMaxEnv, defaultFormWeightMax)
 	}
@@ -178,6 +180,13 @@ func (o FormOptions) withDefaults() FormOptions {
 		o.ChallengerWeight = positiveFloatFromEnv(formChallengerWeightEnv, defaultChallengerWeight)
 	}
 	return o
+}
+
+// formWeightMaxExplicitZero is true when callers set all tuned form fields (e.g. calibration
+// grid) including FormWeightMax=0 to disable the form blend.
+func formWeightMaxExplicitZero(o FormOptions) bool {
+	return o.FormWeightMax == 0 &&
+		o.HalfLifeMatches > 0 && o.FormRatioMin > 0 && o.FormRatioMax > 0
 }
 
 func positiveIntFromEnv(key string, fallback int) int {

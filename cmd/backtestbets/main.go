@@ -1,4 +1,4 @@
-// Walk 2025 ATP matches with odds: sim strategy vs always-bet-favorite baseline.
+// Walk 2025 ATP matches with odds: season sim, recent-form sim, and favorite baseline.
 //
 // Run (from repo root):
 //
@@ -7,6 +7,11 @@
 //
 // On a TTY, stake, min-pick, and sims are prompted when omitted (Enter keeps defaults).
 // Or: make backtest-bets
+//
+// Career JSON cache: make fetch-career (or set TENNISABSTRACT_CAREER_DIR).
+//
+// Optional env (.env loaded automatically): TENNISABSTRACT_CAREER_DIR overrides the
+// default career-match JSON directory (tennisabstract/testdata/career).
 package main
 
 import (
@@ -16,6 +21,7 @@ import (
 	"os"
 
 	"github.com/AndochBonin/polymarket/internal/prompt"
+	"github.com/joho/godotenv"
 )
 
 func main() {
@@ -23,6 +29,8 @@ func main() {
 }
 
 func exitRun() int {
+	_ = godotenv.Load()
+
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	matchesFlag := flag.String("matches", "tennisabstract/testdata/atp_matches_2025_odds.csv", "ATP matches+odds CSV path")

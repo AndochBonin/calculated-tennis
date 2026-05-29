@@ -13,10 +13,15 @@ const defaultBaseURL = "https://www.tennisabstract.com"
 
 // Client fetches and parses Tennis Abstract player pages.
 type Client struct {
-	http     *http.Client
-	baseURL  string
-	cache    Cache
-	cacheTTL time.Duration
+	http               *http.Client
+	baseURL            string
+	cache              Cache
+	cacheTTL           time.Duration
+	careerCacheDir     string
+	minRequestInterval time.Duration
+	httpMaxRetries     int
+	httpBackoffInitial time.Duration
+	httpBackoffMax     time.Duration
 }
 
 // Option configures a Client.
@@ -65,6 +70,14 @@ func WithCacheTTL(ttl time.Duration) Option {
 	}
 }
 
+// WithCareerCacheDir enables on-disk JSON caching of career match lists.
+// An empty dir disables disk read/write (live fetch only).
+func WithCareerCacheDir(dir string) Option {
+	return func(c *Client) {
+		c.careerCacheDir = dir
+	}
+}
+
 // NewClient builds a Client with optional configuration.
 func NewClient(opts ...Option) *Client {
 	c := &Client{
@@ -109,4 +122,79 @@ func (c *Client) GetPlayerStats(ctx context.Context, playerName string) (models.
 		return models.PlayerStats{}, fmt.Errorf("get player stats: %w", err)
 	}
 	return stats, nil
+}
+
+// GetCareerMatches loads the full merged career match list for playerName.
+// When careerCacheDir is set, it returns cached JSON on hit; on miss it fetches
+// player-classic.cgi and optional Career.js, parses matchmx arrays, writes to disk, and returns.
+func (c *Client) GetCareerMatches(ctx context.Context, playerName string) (models.CareerMatches, error) {
+	slug := PlayerSlug(playerName)
+	if slug == "" {
+		return models.CareerMatches{}, fmt.Errorf("get career matches: empty player name")
+	}
+
+	if c.careerCacheDir != "" {
+		if career, ok, err := ReadCareerMatchesFile(c.careerCacheDir, slug); err != nil {
+			return models.CareerMatches{}, fmt.Errorf("get career matches: %w", err)
+		} else if ok {
+			return career, nil
+		}
+	}
+
+	career, err := c.fetchCareerMatches(ctx, slug)
+	if err != nil {
+		return models.CareerMatches{}, err
+	}
+
+	if c.careerCacheDir != "" {
+		if err := WriteCareerMatchesFile(c.careerCacheDir, slug, career); err != nil {
+			return models.CareerMatches{}, fmt.Errorf("get career matches: %w", err)
+		}
+	}
+	return career, nil
+}
+
+// GetRecentResultsAsOf returns up to limit matches strictly before asOf (UTC date-only).
+// It uses GetCareerMatches and filters in-process so one on-disk career list serves every as-of date.
+func (c *Client) GetRecentResultsAsOf(ctx context.Context, playerName string, asOf time.Time, limit int) ([]models.RecentResult, error) {
+	career, err := c.GetCareerMatches(ctx, playerName)
+	if err != nil {
+		return nil, fmt.Errorf("get recent results as of: %w", err)
+	}
+	return RecentResultsBefore(career.Matches, asOf, limit), nil
+}
+
+func (c *Client) fetchCareerMatches(ctx context.Context, slug string) (models.CareerMatches, error) {
+	classicBody, err := c.fetchPlayerClassicPage(ctx, slug, defaultClassicFilter)
+	if err != nil {
+		return models.CareerMatches{}, fmt.Errorf("get career matches: %w", err)
+	}
+
+	matchmx, err := extractJSArray(classicBody, "matchmx")
+	if err != nil {
+		return models.CareerMatches{}, fmt.Errorf("get career matches: %w", err)
+	}
+
+	var morematchmx [][]string
+	careerBody, err := c.fetchCareerMatchesJS(ctx, slug)
+	if err != nil {
+		return models.CareerMatches{}, fmt.Errorf("get career matches: %w", err)
+	}
+	if len(careerBody) > 0 {
+		morematchmx, err = extractJSArray(careerBody, "morematchmx")
+		if err != nil {
+			return models.CareerMatches{}, fmt.Errorf("get career matches: %w", err)
+		}
+	}
+
+	matches, err := ParseMatchMXArrays(matchmx, morematchmx)
+	if err != nil {
+		return models.CareerMatches{}, fmt.Errorf("get career matches: %w", err)
+	}
+
+	return models.CareerMatches{
+		PlayerSlug: slug,
+		Matches:    matches,
+		FetchedAt:  time.Now().UTC(),
+	}, nil
 }

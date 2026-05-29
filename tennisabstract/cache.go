@@ -17,8 +17,8 @@ import (
 var jsonMarshal = json.Marshal
 
 const (
-	cacheKeyPrefix     = "tennisabstract:player:"
-	defaultCacheTTL    = 6 * time.Hour
+	cacheKeyPrefix  = "tennisabstract:player:"
+	defaultCacheTTL = 6 * time.Hour
 	cacheTTLEnv        = "TENNISABSTRACT_CACHE_TTL"
 	redisAddrEnv       = "REDIS_ADDR"
 	redisURLEnv        = "REDIS_URL"

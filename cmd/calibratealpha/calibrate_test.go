@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"math"
 	"math/rand/v2"
 	"os"
@@ -19,6 +20,7 @@ func TestEvaluateAlpha_metrics(t *testing.T) {
 		PlayerASlug: "DaniilMedvedev",
 		PlayerBSlug: "JannikSinner",
 		Format:      tennis.DefaultFormat(),
+		TourneyDate: 20250115,
 	}}
 	rates := tennisabstract.PlayerRatesMap{
 		"DaniilMedvedev": {Hold2024: 0.801, Break2024: 0.27},
@@ -27,7 +29,7 @@ func TestEvaluateAlpha_metrics(t *testing.T) {
 	rng := rand.New(rand.NewPCG(42, mixSeed(42)))
 
 	cfg := CalibrateConfig{Sims: 100, AlphaMin: 1, AlphaMax: 1, Seed: 42}
-	m, err := evaluateAlpha(cfg, tennisabstract.SurfaceHard, matches, rates, 1, 100, rng)
+	m, err := evaluateAlpha(context.Background(), cfg, tennisabstract.SurfaceHard, matches, rates, nil, 1, 100, rng)
 	if err != nil {
 		t.Fatalf("evaluateAlpha: %v", err)
 	}
@@ -41,16 +43,54 @@ func TestEvaluateAlpha_metrics(t *testing.T) {
 	}
 }
 
+func TestEvaluateAlpha_excludesSkippedFromDenominator(t *testing.T) {
+	t.Parallel()
+
+	evaluated := []tennisabstract.CalibrationMatch{{
+		PlayerASlug: "DaniilMedvedev",
+		PlayerBSlug: "JannikSinner",
+		Format:      tennis.DefaultFormat(),
+		TourneyDate: 20250115,
+	}}
+	skipped := tennisabstract.CalibrationMatch{
+		PlayerASlug: "UnknownA",
+		PlayerBSlug: "UnknownB",
+		Format:      tennis.DefaultFormat(),
+		TourneyDate: 20250116,
+	}
+	rates := tennisabstract.PlayerRatesMap{
+		"DaniilMedvedev": {Hold2024: 0.801, Break2024: 0.27},
+		"JannikSinner":   {Hold2024: 0.85, Break2024: 0.25},
+	}
+	cfg := CalibrateConfig{Sims: 100, Seed: 42}
+
+	want, err := evaluateAlpha(context.Background(), cfg, tennisabstract.SurfaceHard, evaluated, rates, nil, 1, 100, rand.New(rand.NewPCG(42, mixSeed(42))))
+	if err != nil {
+		t.Fatalf("single match evaluateAlpha: %v", err)
+	}
+
+	got, err := evaluateAlpha(context.Background(), cfg, tennisabstract.SurfaceHard, append(evaluated, skipped), rates, nil, 1, 100, rand.New(rand.NewPCG(42, mixSeed(42))))
+	if err != nil {
+		t.Fatalf("evaluateAlpha with skipped match: %v", err)
+	}
+	if math.Abs(got.MeanSimAccuracy-want.MeanSimAccuracy) > 1e-12 {
+		t.Fatalf("MeanSimAccuracy = %v, want %v (skipped match must not deflate denominator)", got.MeanSimAccuracy, want.MeanSimAccuracy)
+	}
+	if math.Abs(got.HitRate-want.HitRate) > 1e-12 {
+		t.Fatalf("HitRate = %v, want %v", got.HitRate, want.HitRate)
+	}
+}
+
 func TestRunCalibration_smoke(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
 	csvPath := filepath.Join(dir, "matches.csv")
 	csv := strings.Join([]string{
-		"tourney_id,winner_name,loser_name,surface,score,best_of",
-		"1,Daniil Medvedev,Jannik Sinner,Hard,6-4 6-3,3",
-		"2,Carlos Alcaraz,Novak Djokovic,Clay,6-2 6-4,3",
-		"3,Roger Federer,Rafael Nadal,Grass,7-6(5) 6-4,3",
+		"tourney_id,winner_name,loser_name,surface,score,best_of,tourney_date",
+		"1,Daniil Medvedev,Jannik Sinner,Hard,6-4 6-3,3,20250115",
+		"2,Carlos Alcaraz,Novak Djokovic,Clay,6-2 6-4,3,20250601",
+		"3,Roger Federer,Rafael Nadal,Grass,7-6(5) 6-4,3,20250701",
 	}, "\n")
 	if err := os.WriteFile(csvPath, []byte(csv), 0o644); err != nil {
 		t.Fatal(err)
@@ -152,8 +192,8 @@ func TestRunCalibration_skipsMissingRates(t *testing.T) {
 
 	dir := t.TempDir()
 	csvPath := filepath.Join(dir, "matches.csv")
-	csv := "tourney_id,winner_name,loser_name,surface,score,best_of\n" +
-		"1,Alice Bob,Carol Dan,Hard,6-4 6-3,3\n"
+	csv := "tourney_id,winner_name,loser_name,surface,score,best_of,tourney_date\n" +
+		"1,Alice Bob,Carol Dan,Hard,6-4 6-3,3,20250101\n"
 	if err := os.WriteFile(csvPath, []byte(csv), 0o644); err != nil {
 		t.Fatal(err)
 	}

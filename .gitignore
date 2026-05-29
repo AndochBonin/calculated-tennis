@@ -1,5 +1,6 @@
 .env
 secret.json
+tennisabstract/testdata/career/*.json
 *.out
 __pycache__/
 dist/

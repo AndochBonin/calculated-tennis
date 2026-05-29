@@ -2,6 +2,13 @@ package models
 
 import "time"
 
+// CareerMatches is the full merged career match list for a player (classic + Career.js).
+type CareerMatches struct {
+	PlayerSlug string
+	Matches    []RecentResult
+	FetchedAt  time.Time
+}
+
 // PlayerStats holds parsed Tennis Abstract player page data.
 type PlayerStats struct {
 	PlayerSlug         string

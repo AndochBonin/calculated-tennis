@@ -74,7 +74,7 @@ func exitRun() int {
 		return 1
 	}
 
-	opts := []tennisabstract.Option{}
+	opts := tennisabstract.HTTPClientOptionsFromEnv()
 	if cacheConfigured() {
 		cache, err := tennisabstract.NewRedisCacheFromEnv()
 		if err != nil {

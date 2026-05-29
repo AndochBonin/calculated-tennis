@@ -79,14 +79,28 @@ fetch-rates:
 		$(if $(OUT),-out=$(OUT),) \
 		$(if $(MERGE),-merge=true,)
 
+# Per-player career match lists as JSON (from matches CSV; use MERGE=1 to skip existing files).
+fetch-career:
+	go run ./cmd/fetchcareer $(if $(MATCHES),-matches=$(MATCHES),) \
+		$(if $(DIR),-dir=$(DIR),) \
+		$(if $(MERGE),-merge=true,)
+
 # Per-surface alpha grid on 2025 test matches (5000 sims, alpha 1–50). Fetches rates if missing.
 calibrate-alpha:
 	@test -f tennisabstract/testdata/player_rates_2024.json || $(MAKE) fetch-rates
 	go run ./cmd/calibratealpha
 
-# Chronological 2025 backtest (interactive on TTY; pass STAKE/MIN_PICK/SIMS to skip prompts).
-backtest-bets:
+# Per-surface form grid (alpha=1, recent form). Preloads career data once per surface; use lower -sims for exploration.
+# Optional -workers (default NumCPU). Full player coverage: make fetch-career (or set TENNISABSTRACT_CAREER_DIR).
+calibrate-form:
 	@test -f tennisabstract/testdata/player_rates_2024.json || $(MAKE) fetch-rates
+	@test -d tennisabstract/testdata/career && ls tennisabstract/testdata/career/*.json >/dev/null 2>&1 || $(MAKE) fetch-career
+	go run ./cmd/calibrateform
+
+# Chronological 2025 backtest (interactive on TTY; pass STAKE/MIN_PICK/SIMS to skip prompts).
+backtest:
+	@test -f tennisabstract/testdata/player_rates_2024.json || $(MAKE) fetch-rates
+	@test -d tennisabstract/testdata/career && ls tennisabstract/testdata/career/*.json >/dev/null 2>&1 || $(MAKE) fetch-career
 	go run ./cmd/backtestbets $(if $(MIN_PICK),-min-pick=$(MIN_PICK),) \
 		$(if $(STAKE),-stake=$(STAKE),) \
 		$(if $(SIMS),-sims=$(SIMS),)

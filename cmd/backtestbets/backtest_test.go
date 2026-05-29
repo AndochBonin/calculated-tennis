@@ -44,6 +44,9 @@ func TestRunBacktest_smoke(t *testing.T) {
 	if res1.Favorite != res2.Favorite {
 		t.Fatalf("non-deterministic favorite: %+v vs %+v", res1.Favorite, res2.Favorite)
 	}
+	if res1.SimForm != res2.SimForm {
+		t.Fatalf("non-deterministic sim-form: %+v vs %+v", res1.SimForm, res2.SimForm)
+	}
 
 	stats := res1.Sim
 	if stats.MatchesWalk != 2 {
@@ -69,6 +72,14 @@ func TestRunBacktest_smoke(t *testing.T) {
 	}
 	if fav.Bets != stats.Bets {
 		t.Fatalf("favorite bets = %d, sim bets = %d (must match)", fav.Bets, stats.Bets)
+	}
+
+	form := res1.SimForm
+	if form.MatchesWalk != stats.MatchesWalk {
+		t.Fatalf("sim-form MatchesWalk = %d, sim = %d", form.MatchesWalk, stats.MatchesWalk)
+	}
+	if form.Bets+form.Skipped != form.MatchesWalk {
+		t.Fatalf("sim-form bets(%d)+skipped(%d) != walked(%d)", form.Bets, form.Skipped, form.MatchesWalk)
 	}
 }
 

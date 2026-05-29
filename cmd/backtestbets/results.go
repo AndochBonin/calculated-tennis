@@ -25,6 +25,8 @@ func (s BacktestStats) returnPct(stake float64) float64 {
 func printBacktestResults(w io.Writer, result BacktestRunResult, stake float64) {
 	printLabeledBacktestResults(w, "sim", result.Sim, stake)
 	fmt.Fprintln(w)
+	printLabeledBacktestResults(w, "sim-form", result.SimForm, stake)
+	fmt.Fprintln(w)
 	printLabeledBacktestResults(w, "favorite", result.Favorite, stake)
 }
 

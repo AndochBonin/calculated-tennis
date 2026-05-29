@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,13 +16,14 @@ import (
 
 // CalibrateConfig controls the alpha grid search.
 type CalibrateConfig struct {
-	MatchesPath string
-	RatesPath   string
-	Sims        int
-	AlphaMin    int
-	AlphaMax    int
-	Seed        uint64
-	Log         *slog.Logger // progress to stderr; nil → no logging
+	MatchesPath    string
+	RatesPath      string
+	Sims           int
+	AlphaMin       int
+	AlphaMax       int
+	Seed           uint64
+	UseRecentForm  bool
+	Log            *slog.Logger // progress to stderr; nil → no logging
 }
 
 func (cfg CalibrateConfig) log() *slog.Logger {
@@ -93,10 +95,19 @@ func RunCalibration(cfg CalibrateConfig) ([]SurfaceCalibration, error) {
 	log.Info("rates loaded", "players", len(rates))
 
 	rng := rand.New(rand.NewPCG(cfg.Seed, mixSeed(cfg.Seed)))
+
+	var taClient *tennisabstract.Client
+	if cfg.UseRecentForm {
+		opts := tennisabstract.CareerClientOptionsFromEnv()
+		taClient = tennisabstract.NewClient(opts...)
+		log.Info("recent form enabled", "career_dir", tennisabstract.CareerCacheDirFromEnv())
+	}
+
+	ctx := context.Background()
 	out := make([]SurfaceCalibration, 0, len(calibrationSurfaces))
 	for _, surface := range calibrationSurfaces {
 		log.Info("surface start", "surface", surface, "matches_in_csv", len(load.BySurface[surface]))
-		sc, err := calibrateSurface(cfg, surface, load.BySurface[surface], rates, rng)
+		sc, err := calibrateSurface(ctx, cfg, surface, load.BySurface[surface], rates, taClient, rng)
 		if err != nil {
 			return nil, fmt.Errorf("surface %s: %w", surface, err)
 		}
@@ -118,10 +129,12 @@ func mixSeed(seed uint64) uint64 {
 }
 
 func calibrateSurface(
+	ctx context.Context,
 	cfg CalibrateConfig,
 	surface tennisabstract.MatchSurface,
 	matches []tennisabstract.CalibrationMatch,
 	rates tennisabstract.PlayerRatesMap,
+	taClient *tennisabstract.Client,
 	rng *rand.Rand,
 ) (SurfaceCalibration, error) {
 	eligible, skipped := filterEligibleMatches(matches, rates)
@@ -144,7 +157,7 @@ func calibrateSurface(
 			"alpha", alpha,
 			"progress", fmt.Sprintf("%d/%d", alphaIdx, alphaTotal),
 		)
-		m, err := evaluateAlpha(cfg, surface, eligible, rates, float64(alpha), cfg.Sims, rng)
+		m, err := evaluateAlpha(ctx, cfg, surface, eligible, rates, taClient, float64(alpha), cfg.Sims, rng)
 		if err != nil {
 			return SurfaceCalibration{}, err
 		}
@@ -187,7 +200,9 @@ func filterEligibleMatches(
 	rates tennisabstract.PlayerRatesMap,
 ) (eligible []tennisabstract.CalibrationMatch, skipped int) {
 	for _, m := range matches {
-		if _, ok := matchPlayerRates(m, rates); ok {
+		if _, ok := tennisabstract.MatchPlayerRates(
+			context.Background(), m, rates, nil, false, tennisabstract.FormOptions{},
+		); ok {
 			eligible = append(eligible, m)
 		} else {
 			skipped++
@@ -196,23 +211,13 @@ func filterEligibleMatches(
 	return eligible, skipped
 }
 
-func matchPlayerRates(m tennisabstract.CalibrationMatch, rates tennisabstract.PlayerRatesMap) ([2]tennis.PlayerRates, bool) {
-	a, okA := rates[m.PlayerASlug]
-	b, okB := rates[m.PlayerBSlug]
-	if !okA || !okB {
-		return [2]tennis.PlayerRates{}, false
-	}
-	return [2]tennis.PlayerRates{
-		{HoldPct: a.Hold2024, BreakPct: a.Break2024},
-		{HoldPct: b.Hold2024, BreakPct: b.Break2024},
-	}, true
-}
-
 func evaluateAlpha(
+	ctx context.Context,
 	cfg CalibrateConfig,
 	surface tennisabstract.MatchSurface,
 	matches []tennisabstract.CalibrationMatch,
 	rates tennisabstract.PlayerRatesMap,
+	taClient *tennisabstract.Client,
 	alpha float64,
 	sims int,
 	rng *rand.Rand,
@@ -223,7 +228,7 @@ func evaluateAlpha(
 
 	log := cfg.log()
 	var sumCorrectFrac float64
-	var hits int
+	var hits, evaluated int
 	simsF := float64(sims)
 	logEvery := matchLogInterval(len(matches))
 
@@ -236,7 +241,7 @@ func evaluateAlpha(
 				"players", fmt.Sprintf("%s vs %s", m.PlayerA, m.PlayerB),
 			)
 		}
-		playerRates, ok := matchPlayerRates(m, rates)
+		playerRates, ok := tennisabstract.MatchPlayerRates(ctx, m, rates, taClient, cfg.UseRecentForm, tennisabstract.FormOptions{})
 		if !ok {
 			continue
 		}
@@ -249,9 +254,13 @@ func evaluateAlpha(
 		if winsA > result.WinCount(tennis.B) {
 			hits++
 		}
+		evaluated++
 	}
 
-	n := float64(len(matches))
+	if evaluated == 0 {
+		return AlphaMetrics{}, nil
+	}
+	n := float64(evaluated)
 	return AlphaMetrics{
 		MeanSimAccuracy: sumCorrectFrac / n,
 		HitRate:         float64(hits) / n,

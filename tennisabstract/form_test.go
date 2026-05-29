@@ -128,6 +128,43 @@ func TestAdjustedHoldBreak_noRecentDR(t *testing.T) {
 	}
 }
 
+func TestAdjustedHoldBreak_explicitZeroFormWeightMax(t *testing.T) {
+	t.Parallel()
+
+	asOf := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	dr := 1.15
+	var recent []models.RecentResult
+	for i := 0; i < 10; i++ {
+		d := dr
+		recent = append(recent, models.RecentResult{
+			Date:           asOf.AddDate(0, 0, -i),
+			DominanceRatio: &d,
+		})
+	}
+	stats := models.PlayerStats{
+		TourLevelSeasons: []models.TourLevelSeason{
+			{Year: 2026, Matches: 40, HoldPct: 0.75, BreakPct: 0.20, DR: 1.00},
+		},
+		RecentResults: recent,
+	}
+	rates, err := AdjustedHoldBreak(stats, FormOptions{
+		AsOf:            asOf,
+		HalfLifeMatches: 5,
+		FormWeightMax:   0,
+		FormRatioMin:    0.92,
+		FormRatioMax:    1.08,
+	})
+	if err != nil {
+		t.Fatalf("AdjustedHoldBreak: %v", err)
+	}
+	if rates.FormWeight != 0 {
+		t.Fatalf("FormWeight = %v, want 0 (explicit FormWeightMax=0)", rates.FormWeight)
+	}
+	if math.Abs(rates.HoldPct-rates.SeasonHold) > 1e-12 {
+		t.Fatalf("HoldPct = %v, want season %v", rates.HoldPct, rates.SeasonHold)
+	}
+}
+
 func TestAdjustedHoldBreak_seasonBlendLowMatches(t *testing.T) {
 	t.Parallel()
 
@@ -138,10 +175,13 @@ func TestAdjustedHoldBreak_seasonBlendLowMatches(t *testing.T) {
 		},
 	}
 	rates, err := AdjustedHoldBreak(stats, FormOptions{
-		AsOf:               time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
-		MinSeasonMatches:   20,
-		RecentMatchLimit:   0, // no recent rows considered
-		FormWeightMax:      0,
+		AsOf:             time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		MinSeasonMatches: 20,
+		RecentMatchLimit: 0, // no recent rows considered
+		HalfLifeMatches:  5,
+		FormWeightMax:    0,
+		FormRatioMin:     0.92,
+		FormRatioMax:     1.08,
 	})
 	if err != nil {
 		t.Fatalf("AdjustedHoldBreak: %v", err)
@@ -210,7 +250,10 @@ func TestAdjustedHoldBreak_challengerSupplement(t *testing.T) {
 		AsOf:             asOf,
 		MinSeasonMatches: 20,
 		RecentMatchLimit: 0,
+		HalfLifeMatches:  5,
 		FormWeightMax:    0,
+		FormRatioMin:     0.92,
+		FormRatioMax:     1.08,
 		ChallengerWeight: chalWeight,
 	}
 
@@ -502,6 +545,16 @@ func TestFormOptions_withDefaultsFromEnv(t *testing.T) {
 	explicit := FormOptions{MinSeasonMatches: 7}.withDefaults()
 	if explicit.MinSeasonMatches != 7 {
 		t.Fatalf("explicit option kept: %d", explicit.MinSeasonMatches)
+	}
+
+	zeroWeight := FormOptions{
+		HalfLifeMatches: 5,
+		FormWeightMax:   0,
+		FormRatioMin:    0.92,
+		FormRatioMax:    1.08,
+	}.withDefaults()
+	if zeroWeight.FormWeightMax != 0 {
+		t.Fatalf("explicit FormWeightMax=0 kept: %v", zeroWeight.FormWeightMax)
 	}
 }
 
