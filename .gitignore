@@ -1,11 +1,19 @@
+# Secrets (polymarket module)
 .env
 secret.json
-tennisabstract/testdata/career/*.json
+
+# Go / Python build artifacts
 *.out
 __pycache__/
 dist/
+
+# Terraform (polymarket/infra/terraform)
 *.hcl
 .terraform/
 *.tfstate
 *.tfstate.*
+
+# Tennis Abstract career cache (fetched locally; keep test fixtures in git)
+tennis/tennisabstract/testdata/career/*.json
+
 .DS_Store
