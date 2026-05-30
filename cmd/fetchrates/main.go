@@ -4,6 +4,7 @@
 //
 //	go run ./cmd/fetchrates
 //	go run ./cmd/fetchrates -matches=tennisabstract/testdata/atp_matches_2025.csv -out=tennisabstract/testdata/player_rates_2024.json
+//	go run ./cmd/fetchrates -merge -fill-dr   # backfill dr_2024 for slugs already in -out
 //
 // Or: make fetch-rates
 //
@@ -37,9 +38,10 @@ func exitRun() int {
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	matchesFlag := flag.String("matches", "tennisabstract/testdata/atp_matches_2025.csv", "ATP matches CSV path")
-	outFlag := flag.String("out", "tennisabstract/testdata/player_rates_2024.json", "output JSON path (slug → hold_2024/break_2024)")
-	yearFlag := flag.Int("year", 2024, "calendar year for SeasonHoldBreak")
+	outFlag := flag.String("out", "tennisabstract/testdata/player_rates_2024.json", "output JSON path (slug → hold_2024/break_2024/dr_2024)")
+	yearFlag := flag.Int("year", 2024, "calendar year for SeasonBaseline")
 	mergeFlag := flag.Bool("merge", false, "keep existing entries in -out and only fetch missing slugs")
+	fillDRFlag := flag.Bool("fill-dr", false, "with -merge, refetch slugs whose dr_2024 is zero or missing")
 	flag.Parse()
 
 	if *yearFlag <= 0 {
@@ -94,8 +96,10 @@ func exitRun() int {
 			skipped++
 			continue
 		}
-		if _, ok := rates[slug]; ok {
-			continue
+		if existing, ok := rates[slug]; ok {
+			if !*fillDRFlag || existing.DR2024 > 0 {
+				continue
+			}
 		}
 
 		log.Info("fetching player stats", "progress", fmt.Sprintf("%d/%d", i+1, len(names)), "name", name, "slug", slug)
@@ -105,15 +109,16 @@ func exitRun() int {
 			fetchErrs++
 			continue
 		}
-		hold, brk, err := tennisabstract.SeasonHoldBreak(stats, *yearFlag)
+		hold, brk, dr, err := tennisabstract.SeasonBaseline(stats, *yearFlag)
 		if err != nil {
-			log.Error("season hold/break", "name", name, "slug", slug, "year", *yearFlag, "err", err)
+			log.Error("season baseline", "name", name, "slug", slug, "year", *yearFlag, "err", err)
 			fetchErrs++
 			continue
 		}
 		rates[slug] = tennisabstract.PlayerRates2024{
 			Hold2024:  hold,
 			Break2024: brk,
+			DR2024:    dr,
 		}
 	}
 

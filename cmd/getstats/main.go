@@ -3,10 +3,13 @@
 // Run (from repo root):
 //
 //	go run ./cmd/getstats
-//	go run ./cmd/getstats -player="Daniil Medvedev"
+//	go run ./cmd/getstats -player="Daniil Medvedev" -surface=clay
 //
-// Or: make get-stats (prompts for player name on a TTY)
-// Or: make get-stats PLAYER="jannik sinner"
+// Or: make get-stats (prompts for player name and surface on a TTY)
+// Or: make get-stats PLAYER="jannik sinner" SURFACE=hard
+//
+// Form-adjusted hold/break uses surface-specific TENNISABSTRACT_FORM_*_{HARD|CLAY|GRASS} from .env
+// when set (see tennisabstract/form_env.go).
 //
 // Optional env: REDIS_ADDR or REDIS_URL (enables Redis cache when set; otherwise no cache),
 // TENNISABSTRACT_CACHE_TTL (e.g. "6h", default 6h when cache is enabled).
@@ -28,7 +31,10 @@ import (
 	"github.com/joho/godotenv"
 )
 
-var errUsage = errors.New("usage")
+var (
+	errUsage          = errors.New("usage")
+	errInvalidSurface = errors.New("invalid court surface")
+)
 
 func main() {
 	os.Exit(exitRun())
@@ -40,13 +46,25 @@ func exitRun() int {
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	playerFlag := flag.String("player", "", "player display name or slug")
+	surfaceFlag := flag.String("surface", "", "court surface: hard, clay, or grass")
 	flag.Parse()
 
 	player, err := resolvePlayer(os.Stdin, *playerFlag, flag.Args(), prompt.IsInteractive)
 	if err != nil {
 		if errors.Is(err, errUsage) {
 			log.Error("usage", "msg", "-player is required")
-			fmt.Fprintf(os.Stderr, "usage: %s -player=<name>\n", os.Args[0])
+			fmt.Fprintf(os.Stderr, "usage: %s -player=<name> -surface=<hard|clay|grass>\n", os.Args[0])
+			return 2
+		}
+		log.Error("input", "err", err)
+		return 1
+	}
+
+	surface, err := resolveSurface(os.Stdin, *surfaceFlag, prompt.IsInteractive)
+	if err != nil {
+		if errors.Is(err, errUsage) {
+			log.Error("usage", "msg", "-surface is required")
+			fmt.Fprintf(os.Stderr, "usage: %s -player=<name> -surface=<hard|clay|grass>\n", os.Args[0])
 			return 2
 		}
 		log.Error("input", "err", err)
@@ -74,7 +92,8 @@ func exitRun() int {
 		return 1
 	}
 
-	rates, err := tennisabstract.AdjustedHoldBreak(stats, tennisabstract.FormOptions{})
+	formOpts := tennisabstract.FormOptionsFromEnv(surface)
+	rates, err := tennisabstract.AdjustedHoldBreak(stats, formOpts)
 	if err != nil {
 		log.Error("adjusted hold/break", "err", err)
 		return 1
@@ -119,6 +138,50 @@ func resolvePlayer(stdin *os.File, playerFlag string, args []string, interactive
 		return "", errUsage
 	}
 	return player, nil
+}
+
+func resolveSurface(stdin *os.File, surfaceFlag string, interactive func(*os.File) bool) (tennisabstract.MatchSurface, error) {
+	raw := strings.TrimSpace(surfaceFlag)
+	var br *bufio.Reader
+	if raw == "" && interactive(stdin) {
+		br = bufio.NewReader(stdin)
+	}
+	if raw == "" && br != nil {
+		var err error
+		raw, err = prompt.ReadLineFrom(os.Stderr, br, surfaceMenuLabel())
+		if err != nil {
+			return "", err
+		}
+	}
+	if raw == "" {
+		return "", errUsage
+	}
+	return parseSurfaceChoice(raw)
+}
+
+func surfaceMenuLabel() string {
+	return "Court surface:\n" +
+		"  1) Hard\n" +
+		"  2) Clay\n" +
+		"  3) Grass\n" +
+		"Choice (1-3 or hard/clay/grass): "
+}
+
+func parseSurfaceChoice(raw string) (tennisabstract.MatchSurface, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "hard":
+		return tennisabstract.SurfaceHard, nil
+	case "2", "clay":
+		return tennisabstract.SurfaceClay, nil
+	case "3", "grass":
+		return tennisabstract.SurfaceGrass, nil
+	default:
+		s, err := tennisabstract.ParseMatchSurface(raw)
+		if err != nil {
+			return "", fmt.Errorf("%w: %v", errInvalidSurface, err)
+		}
+		return s, nil
+	}
 }
 
 type statsOutput struct {

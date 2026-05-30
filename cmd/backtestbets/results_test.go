@@ -25,3 +25,22 @@ func TestBacktestStats_winRateAndReturnPct(t *testing.T) {
 		t.Fatal("expected NaN return with no bets")
 	}
 }
+
+func TestBacktestStats_surfaceResultsLine(t *testing.T) {
+	t.Parallel()
+
+	got := (BacktestStats{
+		Hard:  surfaceBetStats{Wins: 40, Bets: 50},
+		Clay:  surfaceBetStats{Wins: 50, Bets: 50},
+		Grass: surfaceBetStats{Wins: 20, Bets: 50},
+	}).surfaceResultsLine()
+	want := "hard=40/50(80%) clay=50/50(100%) grass=20/50(40%)"
+	if got != want {
+		t.Fatalf("surfaceResultsLine = %q, want %q", got, want)
+	}
+
+	empty := BacktestStats{}.surfaceResultsLine()
+	if empty != "hard=0/0(n/a) clay=0/0(n/a) grass=0/0(n/a)" {
+		t.Fatalf("empty surface line = %q", empty)
+	}
+}

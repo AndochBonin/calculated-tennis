@@ -59,11 +59,11 @@ type AdjustedRates struct {
 	SeasonMatches     int
 }
 
-// SeasonHoldBreak returns raw hold and break for a calendar year using the same
+// SeasonBaseline returns hold, break, and DR for a calendar year using the same
 // tour/challenger blend as live season baseline (buildEffectiveCurrentSeason) and,
 // when the year has fewer than MinSeasonMatches, a weighted blend with the prior
 // tour year. Recent-form adjustment is not applied.
-func SeasonHoldBreak(stats models.PlayerStats, year int) (hold, breakPct float64, err error) {
+func SeasonBaseline(stats models.PlayerStats, year int) (hold, breakPct, dr float64, err error) {
 	minMatches := positiveIntFromEnv(formMinSeasonMatchesEnv, defaultMinSeasonMatches)
 	chalWeight := positiveFloatFromEnv(formChallengerWeightEnv, defaultChallengerWeight)
 
@@ -71,18 +71,25 @@ func SeasonHoldBreak(stats models.PlayerStats, year int) (hold, breakPct float64
 		stats.TourLevelSeasons, stats.ChallengerSeasons, year, minMatches, chalWeight,
 	)
 	if !ok {
-		return 0, 0, ErrNoSeasonData
+		return 0, 0, 0, ErrNoSeasonData
 	}
 
-	h0, b0 := curr.HoldPct, curr.BreakPct
+	h0, b0, dr0 := curr.HoldPct, curr.BreakPct, curr.DR
 	if matches < minMatches {
 		if prev, ok := findSeason(stats.TourLevelSeasons, year-1); ok {
 			w := float64(matches) / float64(matches+prev.Matches)
 			h0 = w*curr.HoldPct + (1-w)*prev.HoldPct
 			b0 = w*curr.BreakPct + (1-w)*prev.BreakPct
+			dr0 = w*curr.DR + (1-w)*prev.DR
 		}
 	}
-	return h0, b0, nil
+	return h0, b0, dr0, nil
+}
+
+// SeasonHoldBreak returns hold and break from SeasonBaseline.
+func SeasonHoldBreak(stats models.PlayerStats, year int) (hold, breakPct float64, err error) {
+	h, b, _, err := SeasonBaseline(stats, year)
+	return h, b, err
 }
 
 // AdjustedHoldBreak computes form-aware hold and break rates from scraped stats.
@@ -115,8 +122,12 @@ func AdjustedHoldBreak(stats models.PlayerStats, opts FormOptions) (AdjustedRate
 	drForm, nValid := recentDRForm(stats.RecentResults, opts.RecentMatchLimit, opts.HalfLifeMatches)
 
 	r := 1.0
-	if dr0 != 0 && nValid > 0 {
-		r = drForm / dr0
+	if nValid > 0 {
+		denom := dr0
+		if denom == 0 {
+			denom = 1.0
+		}
+		r = drForm / denom
 		if r < opts.FormRatioMin {
 			r = opts.FormRatioMin
 		}
@@ -135,8 +146,8 @@ func AdjustedHoldBreak(stats models.PlayerStats, opts FormOptions) (AdjustedRate
 		}
 	}
 
-	hAdj := (1-gamma)*h0 + gamma*(h0*r)
-	bAdj := (1-gamma)*b0 + gamma*(b0*r)
+	hAdj := clampUnitInterval((1-gamma)*h0 + gamma*(h0*r))
+	bAdj := clampUnitInterval((1-gamma)*b0 + gamma*(b0*r))
 
 	return AdjustedRates{
 		HoldPct:       hAdj,
@@ -296,6 +307,16 @@ func findSeason(seasons []models.TourLevelSeason, year int) (models.TourLevelSea
 		return s, true
 	}
 	return models.TourLevelSeason{}, false
+}
+
+func clampUnitInterval(x float64) float64 {
+	if x < 0 {
+		return 0
+	}
+	if x > 1 {
+		return 1
+	}
+	return x
 }
 
 func recentDRForm(recent []models.RecentResult, limit int, halfLife float64) (mean float64, nValid int) {

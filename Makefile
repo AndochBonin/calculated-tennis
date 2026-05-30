@@ -71,13 +71,20 @@ place-order:
 
 # Tennis Abstract player stats (live fetch; optional Redis cache via REDIS_ADDR / REDIS_URL).
 get-stats:
-	go run ./cmd/getstats $(if $(PLAYER),-player="$(PLAYER)",)
+	go run ./cmd/getstats $(if $(PLAYER),-player="$(PLAYER)",) \
+		$(if $(SURFACE),-surface=$(SURFACE),)
 
-# Build calibration cache: slug → 2024 hold/break from matches CSV (optional Redis cache).
+# Build calibration cache: slug → 2024 hold/break/DR from matches CSV (optional Redis cache).
 fetch-rates:
 	go run ./cmd/fetchrates $(if $(MATCHES),-matches=$(MATCHES),) \
 		$(if $(OUT),-out=$(OUT),) \
 		$(if $(MERGE),-merge=true,)
+
+# Backfill dr_2024 on an existing player_rates JSON (requires -merge; uses same MATCHES/OUT as fetch-rates).
+fill-rates-dr:
+	go run ./cmd/fetchrates $(if $(MATCHES),-matches=$(MATCHES),) \
+		$(if $(OUT),-out=$(OUT),) \
+		-merge -fill-dr
 
 # Per-player career match lists as JSON (from matches CSV; use MERGE=1 to skip existing files).
 fetch-career:
@@ -109,6 +116,7 @@ backtest:
 sim:
 	go run ./cmd/simmatch $(if $(PLAYER_A),-player-a="$(PLAYER_A)",) \
 		$(if $(PLAYER_B),-player-b="$(PLAYER_B)",) \
+		$(if $(SURFACE),-surface=$(SURFACE),) \
 		$(if $(FORMAT),-format=$(FORMAT),) \
 		$(if $(ALPHA),-alpha=$(ALPHA),) \
 		$(if $(SIMS),-sims=$(SIMS),) \

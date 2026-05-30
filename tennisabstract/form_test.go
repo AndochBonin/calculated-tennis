@@ -42,6 +42,22 @@ func TestSeasonHoldBreak_MedvedevFixture(t *testing.T) {
 	}
 }
 
+func TestSeasonBaseline_MedvedevFixture(t *testing.T) {
+	t.Parallel()
+
+	stats := medvedevStats(t)
+	hold, brk, dr, err := SeasonBaseline(stats, 2024)
+	if err != nil {
+		t.Fatalf("SeasonBaseline: %v", err)
+	}
+	if math.Abs(hold-0.801) > 1e-9 || math.Abs(brk-0.27) > 1e-9 {
+		t.Fatalf("hold/break = %v/%v", hold, brk)
+	}
+	if math.Abs(dr-1.10) > 1e-9 {
+		t.Fatalf("dr = %v, want 1.10", dr)
+	}
+}
+
 func TestSeasonHoldBreak_seasonBlendLowMatches(t *testing.T) {
 	t.Parallel()
 
@@ -193,6 +209,34 @@ func TestAdjustedHoldBreak_seasonBlendLowMatches(t *testing.T) {
 	}
 	if rates.SeasonMatches != 60 {
 		t.Fatalf("SeasonMatches = %d, want 60", rates.SeasonMatches)
+	}
+}
+
+func TestAdjustedHoldBreak_clampsHoldBreakToUnitInterval(t *testing.T) {
+	t.Parallel()
+
+	asOf := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+	hotDR := 1.5
+	stats := models.PlayerStats{
+		TourLevelSeasons: []models.TourLevelSeason{
+			{Year: 2025, Matches: 40, HoldPct: 0.90, BreakPct: 0.22, DR: 1.0},
+		},
+		RecentResults: []models.RecentResult{
+			{Date: time.Date(2025, 5, 20, 0, 0, 0, 0, time.UTC), DominanceRatio: &hotDR},
+		},
+	}
+	rates, err := AdjustedHoldBreak(stats, FormOptions{
+		AsOf:            asOf,
+		RecentMatchLimit: 15,
+		FormWeightMax:   0.9,
+		FormRatioMin:    0.92,
+		FormRatioMax:    1.20,
+	})
+	if err != nil {
+		t.Fatalf("AdjustedHoldBreak: %v", err)
+	}
+	if rates.HoldPct > 1 || rates.HoldPct < 0 || rates.BreakPct > 1 || rates.BreakPct < 0 {
+		t.Fatalf("hold/break out of [0,1]: hold=%v break=%v", rates.HoldPct, rates.BreakPct)
 	}
 }
 

@@ -133,7 +133,7 @@ func playerRatesWithPreloadedRecent(
 	recent []models.RecentResult,
 	opts FormOptions,
 ) (tennis.PlayerRates, bool, error) {
-	stats := PlayerStatsForBacktestForm(slug, asOf, season.Hold2024, season.Break2024)
+	stats := PlayerStatsForBacktestForm(slug, asOf, season.Hold2024, season.Break2024, season.DR2024)
 	adj, err := AdjustedHoldBreakAsOf(stats, recent, opts)
 	if err != nil {
 		return tennis.PlayerRates{}, false, err

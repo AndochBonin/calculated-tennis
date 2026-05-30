@@ -10,6 +10,7 @@ import (
 
 	"github.com/AndochBonin/polymarket/internal/prompt"
 	"github.com/AndochBonin/polymarket/tennis"
+	"github.com/AndochBonin/polymarket/tennisabstract"
 )
 
 func TestResolveInputs_flagsOnly(t *testing.T) {
@@ -22,7 +23,7 @@ func TestResolveInputs_flagsOnly(t *testing.T) {
 	defer w.Close()
 
 	in, err := resolveInputs(r,
-		"Daniil Medvedev", "Jannik Sinner", "atp", "2.5", "10000", "", "",
+		"Daniil Medvedev", "Jannik Sinner", "atp", "hard", "2.5", "10000", "", "",
 		prompt.IsInteractive,
 	)
 	if err != nil {
@@ -48,7 +49,7 @@ func TestResolveInputs_formatCaseInsensitive(t *testing.T) {
 	defer r.Close()
 	defer w.Close()
 
-	in, err := resolveInputs(r, "a", "b", "GS-MEN", "1", "1", "", "", prompt.IsInteractive)
+	in, err := resolveInputs(r, "a", "b", "GS-MEN", "hard", "1", "1", "", "", prompt.IsInteractive)
 	if err != nil {
 		t.Fatalf("resolveInputs: %v", err)
 	}
@@ -73,6 +74,7 @@ func TestResolveInputs_interactivePrompts(t *testing.T) {
 		"Daniil Medvedev",
 		"Jannik Sinner",
 		"2",
+		"hard",
 		"2.5",
 		"5000",
 		"",
@@ -82,7 +84,7 @@ func TestResolveInputs_interactivePrompts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	in, err := resolveInputs(r, "", "", "", "", "", "", "", func(*os.File) bool { return true })
+	in, err := resolveInputs(r, "", "", "", "", "", "", "", "", func(*os.File) bool { return true })
 	if err != nil {
 		t.Fatalf("resolveInputs: %v", err)
 	}
@@ -109,7 +111,7 @@ func TestResolveInputs_nonInteractiveMissing(t *testing.T) {
 	defer r.Close()
 	defer w.Close()
 
-	_, err = resolveInputs(r, "", "", "", "", "", "", "", prompt.IsInteractive)
+	_, err = resolveInputs(r, "", "", "", "", "", "", "", "", prompt.IsInteractive)
 	if !errors.Is(err, errUsage) {
 		t.Fatalf("got err %v want errUsage", err)
 	}
@@ -238,7 +240,7 @@ func TestResolveInputs_trimsFlags(t *testing.T) {
 	defer w.Close()
 
 	in, err := resolveInputs(r,
-		"  Player A  ", "  Player B  ", "  atp  ", "  2.5  ", "  100  ", "", "",
+		"  Player A  ", "  Player B  ", "  atp  ", "  hard  ", "  2.5  ", "  100  ", "", "",
 		prompt.IsInteractive,
 	)
 	if err != nil {
@@ -260,11 +262,11 @@ func TestResolveInputs_interactivePartialFlags(t *testing.T) {
 	}
 	t.Cleanup(func() { r.Close(); w.Close() })
 
-	if _, err := w.WriteString("gs-women\n2500\n\n\n"); err != nil {
+	if _, err := w.WriteString("gs-women\nclay\n2500\n\n\n"); err != nil {
 		t.Fatal(err)
 	}
 
-	in, err := resolveInputs(r, "A", "B", "", "3", "", "", "", func(*os.File) bool { return true })
+	in, err := resolveInputs(r, "A", "B", "", "", "3", "", "", "", func(*os.File) bool { return true })
 	if err != nil {
 		t.Fatalf("resolveInputs: %v", err)
 	}
@@ -276,6 +278,9 @@ func TestResolveInputs_interactivePartialFlags(t *testing.T) {
 	}
 	if in.alpha != 3 || in.sims != 2500 {
 		t.Fatalf("alpha=%v sims=%d", in.alpha, in.sims)
+	}
+	if in.surface != tennisabstract.SurfaceClay {
+		t.Fatalf("surface %q", in.surface)
 	}
 }
 
@@ -289,7 +294,7 @@ func TestResolveInputs_scoreAndFirstServerFlags(t *testing.T) {
 	defer w.Close()
 
 	in, err := resolveInputs(r,
-		"A", "B", "atp", "2", "100",
+		"A", "B", "atp", "grass", "2", "100",
 		"7-5 4-6 2-3", "1",
 		prompt.IsInteractive,
 	)
@@ -328,7 +333,7 @@ func TestResolveInputs_firstServerVariants(t *testing.T) {
 			defer r.Close()
 			defer w.Close()
 
-			in, err := resolveInputs(r, "A", "B", "atp", "1", "1", "", tc.raw, prompt.IsInteractive)
+			in, err := resolveInputs(r, "A", "B", "atp", "hard", "1", "1", "", tc.raw, prompt.IsInteractive)
 			if err != nil {
 				t.Fatalf("resolveInputs: %v", err)
 			}
@@ -351,7 +356,7 @@ func TestResolveInputs_scoreWithoutFirstServer(t *testing.T) {
 	defer r.Close()
 	defer w.Close()
 
-	_, err = resolveInputs(r, "A", "B", "atp", "1", "1", "6-4", "", prompt.IsInteractive)
+	_, err = resolveInputs(r, "A", "B", "atp", "hard", "1", "1", "6-4", "", prompt.IsInteractive)
 	if !errors.Is(err, errFirstServerRequired) {
 		t.Fatalf("got err %v want errFirstServerRequired", err)
 	}
@@ -369,6 +374,7 @@ func TestResolveInputs_interactiveScoreWithoutFirstServer(t *testing.T) {
 		"Player A",
 		"Player B",
 		"atp",
+		"hard",
 		"2",
 		"100",
 		"6-4",
@@ -378,7 +384,7 @@ func TestResolveInputs_interactiveScoreWithoutFirstServer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = resolveInputs(r, "", "", "", "", "", "", "", func(*os.File) bool { return true })
+	_, err = resolveInputs(r, "", "", "", "", "", "", "", "", func(*os.File) bool { return true })
 	if !errors.Is(err, errFirstServerRequired) {
 		t.Fatalf("got err %v want errFirstServerRequired", err)
 	}
@@ -393,7 +399,7 @@ func TestResolveInputs_invalidFirstServerFlag(t *testing.T) {
 	defer r.Close()
 	defer w.Close()
 
-	_, err = resolveInputs(r, "A", "B", "atp", "1", "1", "", "player-a", prompt.IsInteractive)
+	_, err = resolveInputs(r, "A", "B", "atp", "hard", "1", "1", "", "player-a", prompt.IsInteractive)
 	if !errors.Is(err, errInvalidFirstServer) {
 		t.Fatalf("got err %v want errInvalidFirstServer", err)
 	}
@@ -408,7 +414,7 @@ func TestResolveInputs_firstServerWithoutScore(t *testing.T) {
 	defer r.Close()
 	defer w.Close()
 
-	in, err := resolveInputs(r, "A", "B", "atp", "1", "1", "", "2", prompt.IsInteractive)
+	in, err := resolveInputs(r, "A", "B", "atp", "hard", "1", "1", "", "2", prompt.IsInteractive)
 	if err != nil {
 		t.Fatalf("resolveInputs: %v", err)
 	}
@@ -427,7 +433,7 @@ func TestResolveInputs_scoreFlagTrimmed(t *testing.T) {
 	defer w.Close()
 
 	in, err := resolveInputs(r,
-		"A", "B", "atp", "1", "1",
+		"A", "B", "atp", "hard", "1", "1",
 		"  7-5 4-6 2-3  ", "b",
 		prompt.IsInteractive,
 	)
@@ -454,6 +460,7 @@ func TestResolveInputs_interactiveScoreAndFirstServer(t *testing.T) {
 		"Player A",
 		"Player B",
 		"1",
+		"clay",
 		"2",
 		"100",
 		"7-5 4-6 2-3",
@@ -463,7 +470,7 @@ func TestResolveInputs_interactiveScoreAndFirstServer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	in, err := resolveInputs(r, "", "", "", "", "", "", "", func(*os.File) bool { return true })
+	in, err := resolveInputs(r, "", "", "", "", "", "", "", "", func(*os.File) bool { return true })
 	if err != nil {
 		t.Fatalf("resolveInputs: %v", err)
 	}
@@ -472,6 +479,46 @@ func TestResolveInputs_interactiveScoreAndFirstServer(t *testing.T) {
 	}
 	if in.firstServer != tennis.B {
 		t.Fatalf("firstServer %v", in.firstServer)
+	}
+	if in.surface != tennisabstract.SurfaceClay {
+		t.Fatalf("surface %q", in.surface)
+	}
+}
+
+func TestParseSurfaceChoice_valid(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		raw  string
+		want tennisabstract.MatchSurface
+	}{
+		{"1", tennisabstract.SurfaceHard},
+		{"hard", tennisabstract.SurfaceHard},
+		{"HARD", tennisabstract.SurfaceHard},
+		{"2", tennisabstract.SurfaceClay},
+		{"clay", tennisabstract.SurfaceClay},
+		{"3", tennisabstract.SurfaceGrass},
+		{"grass", tennisabstract.SurfaceGrass},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.raw, func(t *testing.T) {
+			t.Parallel()
+			got, err := parseSurfaceChoice(tc.raw)
+			if err != nil {
+				t.Fatalf("parseSurfaceChoice(%q): %v", tc.raw, err)
+			}
+			if got != tc.want {
+				t.Fatalf("parseSurfaceChoice(%q) = %q want %q", tc.raw, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseSurfaceChoice_invalid(t *testing.T) {
+	t.Parallel()
+	_, err := parseSurfaceChoice("carpet")
+	if !errors.Is(err, errInvalidSurface) {
+		t.Fatalf("got err %v want errInvalidSurface", err)
 	}
 }
 

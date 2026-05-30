@@ -241,7 +241,11 @@ func evaluateAlpha(
 				"players", fmt.Sprintf("%s vs %s", m.PlayerA, m.PlayerB),
 			)
 		}
-		playerRates, ok := tennisabstract.MatchPlayerRates(ctx, m, rates, taClient, cfg.UseRecentForm, tennisabstract.FormOptions{})
+		formOpts := tennisabstract.FormOptions{}
+		if cfg.UseRecentForm {
+			formOpts = tennisabstract.FormOptionsFromEnv(m.Surface)
+		}
+		playerRates, ok := tennisabstract.MatchPlayerRates(ctx, m, rates, taClient, cfg.UseRecentForm, formOpts)
 		if !ok {
 			continue
 		}

@@ -58,6 +58,10 @@ func TestRunBacktest_smoke(t *testing.T) {
 	if stats.Wins+stats.Losses != stats.Bets {
 		t.Fatalf("wins(%d)+losses(%d) != bets(%d)", stats.Wins, stats.Losses, stats.Bets)
 	}
+	if stats.Hard.Wins != stats.Wins || stats.Hard.Bets != stats.Bets {
+		t.Fatalf("hard surface wins/bets = %d/%d, want aggregate %d/%d (smoke CSV is all Hard)",
+			stats.Hard.Wins, stats.Hard.Bets, stats.Wins, stats.Bets)
+	}
 	if stats.GrossProfit-stats.GrossLoss != stats.FinalBalance {
 		t.Fatalf("gross_profit(%.2f) - gross_loss(%.2f) != final_balance(%.2f)",
 			stats.GrossProfit, stats.GrossLoss, stats.FinalBalance)

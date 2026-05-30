@@ -3,11 +3,14 @@
 // Run (from repo root):
 //
 //	go run ./cmd/simmatch
-//	go run ./cmd/simmatch -player-a="Daniil Medvedev" -player-b="Jannik Sinner" -format=atp -alpha=2.5 -sims=10000
+//	go run ./cmd/simmatch -player-a="Daniil Medvedev" -player-b="Jannik Sinner" -surface=hard -format=atp -alpha=2.5 -sims=10000
 //	go run ./cmd/simmatch ... -score="7-5 4-6 2-3" -first-server=1
 //
-// Or: make sim-match
-// Or: make sim-match PLAYER_A="..." PLAYER_B="..." FORMAT=atp ALPHA=2.5 SIMS=10000
+// Or: make sim
+// Or: make sim PLAYER_A="..." PLAYER_B="..." SURFACE=clay FORMAT=atp ALPHA=2.5 SIMS=10000
+//
+// Form-adjusted hold/break uses surface-specific TENNISABSTRACT_FORM_*_{HARD|CLAY|GRASS} from .env
+// when set (see tennisabstract/form_env.go).
 //
 // Optional env: REDIS_ADDR or REDIS_URL (enables Redis cache when set; otherwise no cache),
 // TENNISABSTRACT_CACHE_TTL (e.g. "6h", default 6h when cache is enabled).
@@ -40,6 +43,7 @@ var (
 	errInvalidFormat  = errors.New("invalid match format")
 	errInvalidAlpha   = errors.New("alpha must be positive")
 	errInvalidSims           = errors.New("number of simulations must be positive")
+	errInvalidSurface        = errors.New("invalid court surface")
 	errFirstServerRequired   = errors.New("first server is required when score is provided")
 	errInvalidFirstServer    = errors.New("invalid first server")
 )
@@ -56,18 +60,19 @@ func exitRun() int {
 	playerAFlag := flag.String("player-a", "", "player A display name or slug")
 	playerBFlag := flag.String("player-b", "", "player B display name or slug")
 	formatFlag := flag.String("format", "", "match format: atp, gs-men, gs-women")
+	surfaceFlag := flag.String("surface", "", "court surface: hard, clay, or grass")
 	alphaFlag := flag.String("alpha", "", "sensitivity parameter (must be > 0)")
 	simsFlag := flag.String("sims", "", "number of Monte Carlo simulations")
 	scoreFlag := flag.String("score", "", "optional match score (A-B per set, space-separated)")
 	firstServerFlag := flag.String("first-server", "", "first server: 1 or a = player A, 2 or b = player B (required with -score)")
 	flag.Parse()
 
-	in, err := resolveInputs(os.Stdin, *playerAFlag, *playerBFlag, *formatFlag, *alphaFlag, *simsFlag,
+	in, err := resolveInputs(os.Stdin, *playerAFlag, *playerBFlag, *formatFlag, *surfaceFlag, *alphaFlag, *simsFlag,
 		*scoreFlag, *firstServerFlag, prompt.IsInteractive)
 	if err != nil {
 		if errors.Is(err, errUsage) {
-			log.Error("usage", "msg", "player-a, player-b, format, alpha, and sims are required")
-			fmt.Fprintf(os.Stderr, "usage: %s -player-a=<name> -player-b=<name> -format=<atp|gs-men|gs-women> -alpha=<float> -sims=<n>\n", os.Args[0])
+			log.Error("usage", "msg", "player-a, player-b, format, surface, alpha, and sims are required")
+			fmt.Fprintf(os.Stderr, "usage: %s -player-a=<name> -player-b=<name> -format=<atp|gs-men|gs-women> -surface=<hard|clay|grass> -alpha=<float> -sims=<n>\n", os.Args[0])
 			return 2
 		}
 		log.Error("input", "err", err)
@@ -100,7 +105,8 @@ func exitRun() int {
 			log.Error("get player stats", "player", name, "err", err)
 			return 1
 		}
-		adj, err := tennisabstract.AdjustedHoldBreak(stats, tennisabstract.FormOptions{})
+		formOpts := tennisabstract.FormOptionsFromEnv(in.surface)
+		adj, err := tennisabstract.AdjustedHoldBreak(stats, formOpts)
 		if err != nil {
 			log.Error("adjusted hold/break", "player", name, "err", err)
 			return 1
@@ -144,6 +150,7 @@ type simInputs struct {
 	playerB           string
 	format            tennis.MatchFormat
 	formatLabel       string
+	surface           tennisabstract.MatchSurface
 	alpha             float64
 	sims              int
 	score             string
@@ -152,7 +159,7 @@ type simInputs struct {
 	useCoinToss       bool
 }
 
-func resolveInputs(stdin *os.File, playerAFlag, playerBFlag, formatFlag, alphaFlag, simsFlag, scoreFlag, firstServerFlag string, interactive func(*os.File) bool) (simInputs, error) {
+func resolveInputs(stdin *os.File, playerAFlag, playerBFlag, formatFlag, surfaceFlag, alphaFlag, simsFlag, scoreFlag, firstServerFlag string, interactive func(*os.File) bool) (simInputs, error) {
 	var br *bufio.Reader
 	if interactive(stdin) {
 		br = bufio.NewReader(stdin)
@@ -167,6 +174,10 @@ func resolveInputs(stdin *os.File, playerAFlag, playerBFlag, formatFlag, alphaFl
 		return simInputs{}, err
 	}
 	format, formatLabel, err := resolveFormat(formatFlag, br)
+	if err != nil {
+		return simInputs{}, err
+	}
+	surface, err := resolveSurface(surfaceFlag, br)
 	if err != nil {
 		return simInputs{}, err
 	}
@@ -191,6 +202,7 @@ func resolveInputs(stdin *os.File, playerAFlag, playerBFlag, formatFlag, alphaFl
 		playerB:           playerB,
 		format:            format,
 		formatLabel:       formatLabel,
+		surface:           surface,
 		alpha:             alpha,
 		sims:              sims,
 		score:             score,
@@ -236,6 +248,46 @@ func formatMenuLabel() string {
 		"  2) Grand Slam men best-of-5\n" +
 		"  3) Grand Slam women best-of-3\n" +
 		"Choice (1-3 or atp/gs-men/gs-women): "
+}
+
+func surfaceMenuLabel() string {
+	return "Court surface:\n" +
+		"  1) Hard\n" +
+		"  2) Clay\n" +
+		"  3) Grass\n" +
+		"Choice (1-3 or hard/clay/grass): "
+}
+
+func resolveSurface(surfaceFlag string, br *bufio.Reader) (tennisabstract.MatchSurface, error) {
+	raw := strings.TrimSpace(surfaceFlag)
+	if raw == "" && br != nil {
+		var err error
+		raw, err = prompt.ReadLineFrom(os.Stderr, br, surfaceMenuLabel())
+		if err != nil {
+			return "", err
+		}
+	}
+	if raw == "" {
+		return "", errUsage
+	}
+	return parseSurfaceChoice(raw)
+}
+
+func parseSurfaceChoice(raw string) (tennisabstract.MatchSurface, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "hard":
+		return tennisabstract.SurfaceHard, nil
+	case "2", "clay":
+		return tennisabstract.SurfaceClay, nil
+	case "3", "grass":
+		return tennisabstract.SurfaceGrass, nil
+	default:
+		s, err := tennisabstract.ParseMatchSurface(raw)
+		if err != nil {
+			return "", fmt.Errorf("%w: %v", errInvalidSurface, err)
+		}
+		return s, nil
+	}
 }
 
 func parseFormatChoice(raw string) (tennis.MatchFormat, string, error) {
@@ -363,6 +415,7 @@ func printSummary(w io.Writer, names [2]string, rates [2]tennis.PlayerRates, in 
 	fmt.Fprintf(w, "  Player A: %s  (hold %s, break %s)\n", names[0], pct(rates[0].HoldPct), pct(rates[0].BreakPct))
 	fmt.Fprintf(w, "  Player B: %s  (hold %s, break %s)\n", names[1], pct(rates[1].HoldPct), pct(rates[1].BreakPct))
 	fmt.Fprintf(w, "  Format:   %s\n", in.formatLabel)
+	fmt.Fprintf(w, "  Surface:  %s\n", in.surface)
 	if in.score != "" {
 		fmt.Fprintf(w, "  Score:    %s\n", in.score)
 	}

@@ -25,7 +25,7 @@ func TourneyDateAsTime(yyyymmdd int) (time.Time, bool) {
 
 // PlayerStatsForBacktestForm builds minimal PlayerStats for form adjustment when only
 // precomputed season hold/break rates are available (e.g. player_rates_2024.json).
-func PlayerStatsForBacktestForm(slug string, asOf time.Time, hold, breakPct float64) models.PlayerStats {
+func PlayerStatsForBacktestForm(slug string, asOf time.Time, hold, breakPct, dr float64) models.PlayerStats {
 	year := asOf.Year()
 	return models.PlayerStats{
 		PlayerSlug: slug,
@@ -34,6 +34,7 @@ func PlayerStatsForBacktestForm(slug string, asOf time.Time, hold, breakPct floa
 			Matches:  backtestSeasonMatchCount,
 			HoldPct:  hold,
 			BreakPct: breakPct,
+			DR:       dr,
 		}},
 	}
 }

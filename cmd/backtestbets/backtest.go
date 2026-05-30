@@ -31,6 +31,12 @@ func (cfg BacktestConfig) log() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
+// surfaceBetStats counts wins and settled bets on one court surface.
+type surfaceBetStats struct {
+	Wins int
+	Bets int
+}
+
 // BacktestStats aggregates walk outcomes.
 type BacktestStats struct {
 	FinalBalance float64
@@ -41,6 +47,9 @@ type BacktestStats struct {
 	Losses       int
 	Skipped      int // walked matches with no bet
 	MatchesWalk  int
+	Hard         surfaceBetStats
+	Clay         surfaceBetStats
+	Grass        surfaceBetStats
 }
 
 // BacktestRunResult holds sim (season rates), sim with recent form, and favorite baseline.
@@ -161,15 +170,16 @@ func walkBacktests(ctx context.Context, cfg BacktestConfig, eligible []tennisabs
 			out.Sim.Skipped++
 			out.Favorite.Skipped++
 		} else {
-			applyBet(&out.Sim, simSide, simOdds, stake, historicalWinnerSide())
+			applyBet(&out.Sim, m.Surface, simSide, simOdds, stake, historicalWinnerSide())
 			favSide, favOdds, ok := tennisabstract.DecideFavoriteBet(m.AvgW, m.AvgL)
 			if !ok {
 				return out, fmt.Errorf("favorite bet %s vs %s: invalid odds", m.PlayerA, m.PlayerB)
 			}
-			applyBet(&out.Favorite, favSide, favOdds, stake, historicalWinnerSide())
+			applyBet(&out.Favorite, m.Surface, favSide, favOdds, stake, historicalWinnerSide())
 		}
 
-		formRates, formOK := tennisabstract.MatchWithOddsPlayerRates(ctx, m, rates, taClient, true, tennisabstract.FormOptions{})
+		formOpts := tennisabstract.FormOptionsFromEnv(m.Surface)
+		formRates, formOK := tennisabstract.MatchWithOddsPlayerRates(ctx, m, rates, taClient, true, formOpts)
 		if !formOK {
 			out.SimForm.Skipped++
 			continue
@@ -182,7 +192,7 @@ func walkBacktests(ctx context.Context, cfg BacktestConfig, eligible []tennisabs
 			out.SimForm.Skipped++
 			continue
 		}
-		applyBet(&out.SimForm, formSide, formOdds, stake, historicalWinnerSide())
+		applyBet(&out.SimForm, m.Surface, formSide, formOdds, stake, historicalWinnerSide())
 	}
 
 	return out, nil
@@ -214,16 +224,44 @@ func historicalWinnerSide() tennisabstract.BetSide {
 	return tennisabstract.BetSideA
 }
 
-func applyBet(stats *BacktestStats, picked tennisabstract.BetSide, odds, stake float64, actualWinner tennisabstract.BetSide) {
+func applyBet(stats *BacktestStats, surface tennisabstract.MatchSurface, picked tennisabstract.BetSide, odds, stake float64, actualWinner tennisabstract.BetSide) {
 	stats.Bets++
+	surf := stats.surfaceStats(surface)
+	surf.Bets++
 	pnl := settleBet(picked, actualWinner, odds, stake)
 	stats.FinalBalance += pnl
 	if pnl > 0 {
 		stats.Wins++
+		surf.Wins++
 		stats.GrossProfit += pnl
 	} else {
 		stats.Losses++
 		stats.GrossLoss += -pnl
+	}
+	stats.setSurfaceStats(surface, surf)
+}
+
+func (s *BacktestStats) surfaceStats(surface tennisabstract.MatchSurface) surfaceBetStats {
+	switch surface {
+	case tennisabstract.SurfaceHard:
+		return s.Hard
+	case tennisabstract.SurfaceClay:
+		return s.Clay
+	case tennisabstract.SurfaceGrass:
+		return s.Grass
+	default:
+		return surfaceBetStats{}
+	}
+}
+
+func (s *BacktestStats) setSurfaceStats(surface tennisabstract.MatchSurface, st surfaceBetStats) {
+	switch surface {
+	case tennisabstract.SurfaceHard:
+		s.Hard = st
+	case tennisabstract.SurfaceClay:
+		s.Clay = st
+	case tennisabstract.SurfaceGrass:
+		s.Grass = st
 	}
 }
 

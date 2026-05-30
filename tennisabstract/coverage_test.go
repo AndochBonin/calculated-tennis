@@ -304,7 +304,7 @@ func TestAdjustedHoldBreak_asOfNow(t *testing.T) {
 	}
 }
 
-func TestAdjustedHoldBreak_zeroDRSeason(t *testing.T) {
+func TestAdjustedHoldBreak_zeroDRSeasonUsesNeutralDenom(t *testing.T) {
 	t.Parallel()
 
 	stats := models.PlayerStats{
@@ -319,8 +319,8 @@ func TestAdjustedHoldBreak_zeroDRSeason(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AdjustedHoldBreak: %v", err)
 	}
-	if rates.FormRatio != 1 {
-		t.Fatalf("FormRatio = %v, want 1 when DRSeason is 0", rates.FormRatio)
+	if rates.FormRatio != 1.05 {
+		t.Fatalf("FormRatio = %v, want drForm/1.0 when season DR is 0", rates.FormRatio)
 	}
 }
 

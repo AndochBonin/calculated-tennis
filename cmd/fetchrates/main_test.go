@@ -55,13 +55,14 @@ func TestFetchRates_integration(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetPlayerStats(%q): %v", name, err)
 		}
-		hold, brk, err := tennisabstract.SeasonHoldBreak(stats, 2024)
+		hold, brk, dr, err := tennisabstract.SeasonBaseline(stats, 2024)
 		if err != nil {
-			t.Fatalf("SeasonHoldBreak(%q): %v", name, err)
+			t.Fatalf("SeasonBaseline(%q): %v", name, err)
 		}
 		rates[stats.PlayerSlug] = tennisabstract.PlayerRates2024{
 			Hold2024:  hold,
 			Break2024: brk,
+			DR2024:    dr,
 		}
 	}
 	if err := tennisabstract.WritePlayerRatesFile(outPath, rates); err != nil {
@@ -78,5 +79,8 @@ func TestFetchRates_integration(t *testing.T) {
 	}
 	if math.Abs(med.Hold2024-0.801) > 1e-9 || math.Abs(med.Break2024-0.27) > 1e-9 {
 		t.Fatalf("DaniilMedvedev rates = %+v, want hold 0.801 break 0.27", med)
+	}
+	if math.Abs(med.DR2024-1.10) > 1e-9 {
+		t.Fatalf("DaniilMedvedev DR2024 = %v, want 1.10", med.DR2024)
 	}
 }

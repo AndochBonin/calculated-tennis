@@ -8,10 +8,11 @@ import (
 	"strings"
 )
 
-// PlayerRates2024 is raw season hold/break for one player (calibration cache).
+// PlayerRates2024 is raw season hold/break/DR for one player (calibration cache).
 type PlayerRates2024 struct {
 	Hold2024  float64 `json:"hold_2024"`
 	Break2024 float64 `json:"break_2024"`
+	DR2024    float64 `json:"dr_2024,omitempty"`
 }
 
 // PlayerRatesMap is slug → 2024 season rates for calibration.

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/AndochBonin/polymarket/internal/prompt"
+	"github.com/AndochBonin/polymarket/tennisabstract"
 )
 
 func TestResolvePlayer_flag(t *testing.T) {
@@ -131,5 +132,67 @@ func TestResolvePlayer_interactiveEmptyAfterPrompt(t *testing.T) {
 	_, err = resolvePlayer(r, "", nil, func(*os.File) bool { return true })
 	if !errors.Is(err, errUsage) {
 		t.Fatalf("got err %v want errUsage", err)
+	}
+}
+
+func TestResolveSurface_flag(t *testing.T) {
+	t.Parallel()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+
+	surface, err := resolveSurface(r, "clay", prompt.IsInteractive)
+	if err != nil {
+		t.Fatalf("resolveSurface: %v", err)
+	}
+	if surface != tennisabstract.SurfaceClay {
+		t.Fatalf("got %q", surface)
+	}
+}
+
+func TestResolveSurface_interactivePrompt(t *testing.T) {
+	t.Parallel()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { r.Close(); w.Close() })
+
+	if _, err := w.WriteString("grass\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	surface, err := resolveSurface(r, "", func(*os.File) bool { return true })
+	if err != nil {
+		t.Fatalf("resolveSurface: %v", err)
+	}
+	if surface != tennisabstract.SurfaceGrass {
+		t.Fatalf("got %q", surface)
+	}
+}
+
+func TestResolveSurface_nonInteractiveMissing(t *testing.T) {
+	t.Parallel()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+
+	_, err = resolveSurface(r, "", prompt.IsInteractive)
+	if !errors.Is(err, errUsage) {
+		t.Fatalf("got err %v want errUsage", err)
+	}
+}
+
+func TestParseSurfaceChoice_invalid(t *testing.T) {
+	t.Parallel()
+	_, err := parseSurfaceChoice("indoor")
+	if !errors.Is(err, errInvalidSurface) {
+		t.Fatalf("got err %v want errInvalidSurface", err)
 	}
 }
