@@ -167,9 +167,13 @@ func (c *Client) fetchClobServerUnix() int64 {
 	return ts
 }
 
-// orderMessageTimestampMillis returns milliseconds for EIP-712 order timestamps.
+// OrderMessageTimestampMillis returns milliseconds for EIP-712 order timestamps.
 // When useServerTime is true, it uses GET /time (seconds) scaled to ms; /time is
 // second resolution so the value is coarse but valid for uniqueness alongside salt.
+func (c *Client) OrderMessageTimestampMillis() int64 {
+	return c.orderMessageTimestampMillis()
+}
+
 func (c *Client) orderMessageTimestampMillis() int64 {
 	if c.useServerTime {
 		return c.fetchClobServerUnix() * 1000

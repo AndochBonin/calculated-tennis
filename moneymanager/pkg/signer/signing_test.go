@@ -1,4 +1,4 @@
-package clob
+package signer
 
 import (
 	"crypto/ecdsa"
@@ -7,19 +7,16 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/AndochBonin/E3/moneymanager/pkg/order"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/shopspring/decimal"
-
-	"github.com/AndochBonin/E3/polymarket/models"
 )
 
-// Hardhat / Anvil default account #0 — stable test vector (64 hex nibbles after 0x).
 const testPrivKeyHexValid = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 
 const testEOAAddressExpected = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 
-// Distinct valid deposit / funder address (Hardhat account #1).
 const testDepositWallet = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
 
 func TestNewSigner_invalidHex(t *testing.T) {
@@ -81,7 +78,7 @@ func TestBuildOrder_buyAndSell_makerTakerAmounts(t *testing.T) {
 	t.Run("buy", func(t *testing.T) {
 		p, err := s.BuildOrder(
 			"12345",
-			models.OrderSideBuy,
+			order.SideBuy,
 			price,
 			size,
 			false,
@@ -93,7 +90,7 @@ func TestBuildOrder_buyAndSell_makerTakerAmounts(t *testing.T) {
 		if err != nil {
 			t.Fatalf("BuildOrder: %v", err)
 		}
-		if p.Side != models.OrderSideBuy {
+		if p.Side != order.SideBuy {
 			t.Fatalf("Side: got %q", p.Side)
 		}
 		if p.MakerAmount != "5000000" || p.TakerAmount != "10000000" {
@@ -104,7 +101,7 @@ func TestBuildOrder_buyAndSell_makerTakerAmounts(t *testing.T) {
 	t.Run("sell", func(t *testing.T) {
 		p, err := s.BuildOrder(
 			"12345",
-			models.OrderSideSell,
+			order.SideSell,
 			price,
 			size,
 			false,
@@ -116,7 +113,7 @@ func TestBuildOrder_buyAndSell_makerTakerAmounts(t *testing.T) {
 		if err != nil {
 			t.Fatalf("BuildOrder: %v", err)
 		}
-		if p.Side != models.OrderSideSell {
+		if p.Side != order.SideSell {
 			t.Fatalf("Side: got %q", p.Side)
 		}
 		if p.MakerAmount != "10000000" || p.TakerAmount != "5000000" {
@@ -134,15 +131,14 @@ func TestBuildOrder_negRisk_usesNegRiskExchange(t *testing.T) {
 	size := decimal.RequireFromString("10")
 	deposit := common.HexToAddress(testDepositWallet).Hex()
 
-	pRiskOff, err := s.BuildOrder("999", models.OrderSideBuy, price, size, false, 1, 2, deposit, 3)
+	pRiskOff, err := s.BuildOrder("999", order.SideBuy, price, size, false, 1, 2, deposit, 3)
 	if err != nil {
 		t.Fatalf("BuildOrder negRisk=false: %v", err)
 	}
-	pRiskOn, err := s.BuildOrder("999", models.OrderSideBuy, price, size, true, 1, 2, deposit, 3)
+	pRiskOn, err := s.BuildOrder("999", order.SideBuy, price, size, true, 1, 2, deposit, 3)
 	if err != nil {
 		t.Fatalf("BuildOrder negRisk=true: %v", err)
 	}
-	// Same typed-field inputs except domain verifyingContract → different EIP-712 digest → different sig body.
 	if pRiskOff.Signature == pRiskOn.Signature {
 		t.Fatal("expected different signatures for standard vs neg-risk exchange domain")
 	}
@@ -159,7 +155,7 @@ func TestBuildOrder_signatureType_signerField(t *testing.T) {
 	eoa := common.HexToAddress(s.Address()).Hex()
 
 	t.Run("type3_signerIsDeposit", func(t *testing.T) {
-		p, err := s.BuildOrder("42", models.OrderSideBuy, price, size, false, 1, 2, deposit, 3)
+		p, err := s.BuildOrder("42", order.SideBuy, price, size, false, 1, 2, deposit, 3)
 		if err != nil {
 			t.Fatalf("BuildOrder: %v", err)
 		}
@@ -172,7 +168,7 @@ func TestBuildOrder_signatureType_signerField(t *testing.T) {
 	})
 
 	t.Run("type0_signerIsEOA", func(t *testing.T) {
-		p, err := s.BuildOrder("42", models.OrderSideBuy, price, size, false, 1, 2, deposit, 0)
+		p, err := s.BuildOrder("42", order.SideBuy, price, size, false, 1, 2, deposit, 0)
 		if err != nil {
 			t.Fatalf("BuildOrder: %v", err)
 		}
@@ -200,14 +196,13 @@ func TestBuildOrder_tokenID_parseErrors(t *testing.T) {
 		wantSub string
 	}{
 		{"empty_after_signing_path", "", "empty token id"},
-		// Remaining values fail EIP-712 uint256 encoding before parseAssetIDUint256 runs.
 		{"whitespace_only", "  \t ", "hash typed data"},
 		{"non_numeric_decimal", "not-digits", "hash typed data"},
 		{"invalid_hex", "0xgg", "hash typed data"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := s.BuildOrder(tt.tokenID, models.OrderSideBuy, price, size, false, 1, 2, deposit, 3)
+			_, err := s.BuildOrder(tt.tokenID, order.SideBuy, price, size, false, 1, 2, deposit, 3)
 			if err == nil || !strings.Contains(err.Error(), tt.wantSub) {
 				t.Fatalf("tokenID=%q: got err=%v want substring %q", tt.tokenID, err, tt.wantSub)
 			}
@@ -226,7 +221,7 @@ func TestBuildOrder_tokenID_decimalAndHex_ok(t *testing.T) {
 
 	for _, tokenID := range []string{"123456789", "99", "0xff"} {
 		t.Run(tokenID, func(t *testing.T) {
-			p, err := s.BuildOrder(tokenID, models.OrderSideBuy, price, size, false, 9, 9, deposit, 3)
+			p, err := s.BuildOrder(tokenID, order.SideBuy, price, size, false, 9, 9, deposit, 3)
 			if err != nil {
 				t.Fatalf("BuildOrder: %v", err)
 			}
@@ -260,7 +255,7 @@ func TestBuildOrder_randomSalt_randReadFails(t *testing.T) {
 
 	_, err = s.BuildOrder(
 		"1",
-		models.OrderSideBuy,
+		order.SideBuy,
 		decimal.RequireFromString("1"),
 		decimal.RequireFromString("1"),
 		false,
@@ -285,7 +280,7 @@ func TestBuildOrder_payload_fields(t *testing.T) {
 
 	p, err := s.BuildOrder(
 		"7",
-		models.OrderSideBuy,
+		order.SideBuy,
 		decimal.RequireFromString("1"),
 		decimal.RequireFromString("1"),
 		false,
@@ -358,7 +353,7 @@ func TestBuildOrder_cryptoSignFails(t *testing.T) {
 
 	_, err = s.BuildOrder(
 		"5",
-		models.OrderSideBuy,
+		order.SideBuy,
 		decimal.RequireFromString("1"),
 		decimal.RequireFromString("1"),
 		false,
@@ -395,7 +390,7 @@ func TestBuildOrder_packPoly1271ContentsFails(t *testing.T) {
 
 	_, err = s.BuildOrder(
 		"6",
-		models.OrderSideBuy,
+		order.SideBuy,
 		decimal.RequireFromString("1"),
 		decimal.RequireFromString("1"),
 		false,
@@ -424,7 +419,7 @@ func TestBuildOrder_packPoly1271AppDomainSepFails(t *testing.T) {
 
 	_, err = s.BuildOrder(
 		"8",
-		models.OrderSideBuy,
+		order.SideBuy,
 		decimal.RequireFromString("1"),
 		decimal.RequireFromString("1"),
 		false,
@@ -499,7 +494,7 @@ func TestBuildOrder_parseOrderAmountMicroStub_makerFails(t *testing.T) {
 
 	_, err = s.BuildOrder(
 		"4",
-		models.OrderSideBuy,
+		order.SideBuy,
 		decimal.RequireFromString("1"),
 		decimal.RequireFromString("1"),
 		false,
@@ -528,7 +523,7 @@ func TestBuildOrder_parseOrderAmountMicroStub_takerFails(t *testing.T) {
 
 	_, err = s.BuildOrder(
 		"4",
-		models.OrderSideBuy,
+		order.SideBuy,
 		decimal.RequireFromString("1"),
 		decimal.RequireFromString("1"),
 		false,

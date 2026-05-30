@@ -2,6 +2,7 @@ package clob
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,9 +10,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/shopspring/decimal"
-
+	mmclient "github.com/AndochBonin/E3/moneymanager/pkg/client"
 	"github.com/AndochBonin/E3/polymarket/models"
+	"github.com/shopspring/decimal"
 )
 
 // jsonMarshalFn is swappable in tests to exercise marshal error paths (normally unreachable for these structs).
@@ -58,9 +59,12 @@ func clobSignatureTypeFromEnv() (uint8, error) {
 	return uint8(n), nil
 }
 
-// BuildLimitOrder signs a limit order using this client's timestamp policy (local clock or
-// CLOB GET /time when WithServerSignedTime / POLYMARKET_CLOB_SERVER_TIME is enabled).
-func (c *Client) BuildLimitOrder(s *Signer, tokenID string, side models.OrderSide, price, size decimal.Decimal, negRisk bool, expiration int64) (*models.OrderPayload, error) {
+// BuildLimitOrder signs a limit order via the Money Manager gRPC service. Timestamp policy
+// (local clock or CLOB GET /time) is applied on this client before calling SignOrder.
+func (c *Client) BuildLimitOrder(ctx context.Context, mm *mmclient.Client, tokenID string, side models.OrderSide, price, size decimal.Decimal, negRisk bool, expiration int64) (*models.OrderPayload, error) {
+	if mm == nil {
+		return nil, fmt.Errorf("build limit order: money manager client is nil")
+	}
 	depositWallet := strings.TrimSpace(c.depositWallet)
 	if depositWallet == "" {
 		return nil, fmt.Errorf("build limit order: deposit wallet not configured (set POLYMARKET_DEPOSIT_WALLET or DEPOSIT_WALLET, or use WithDepositWallet)")
@@ -69,7 +73,21 @@ func (c *Client) BuildLimitOrder(s *Signer, tokenID string, side models.OrderSid
 	if err != nil {
 		return nil, err
 	}
-	return s.BuildOrder(tokenID, side, price, size, negRisk, expiration, c.orderMessageTimestampMillis(), depositWallet, sigType)
+	p, err := mm.SignLimitOrder(ctx, mmclient.SignLimitOrderParams{
+		TokenID:       tokenID,
+		Side:          orderSideFromModel(side),
+		Price:         price,
+		Size:          size,
+		NegRisk:       negRisk,
+		Expiration:    expiration,
+		TimestampMs:   c.orderMessageTimestampMillis(),
+		DepositWallet: depositWallet,
+		SignatureType: uint32(sigType),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build limit order: %w", err)
+	}
+	return orderPayloadToModel(p), nil
 }
 
 // PlaceOrder submits a signed order to POST /order. owner is the API key UUID for the order owner.

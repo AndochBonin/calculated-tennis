@@ -1,6 +1,7 @@
 package clob
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -9,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/shopspring/decimal"
-
+	mmclient "github.com/AndochBonin/E3/moneymanager/pkg/client"
+	"github.com/AndochBonin/E3/moneymanager/pkg/testserver"
 	"github.com/AndochBonin/E3/polymarket/models"
+	"github.com/shopspring/decimal"
 )
 
 func TestGetOrdersSetsAuthHeaders(t *testing.T) {
@@ -196,19 +197,35 @@ func TestClobSignatureTypeFromEnv_Table(t *testing.T) {
 // Well-known Anvil/Hardhat default account #0 private key (tests only).
 const testBuildLimitOrderPrivateKeyHex = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 
+func startTestMoneyManagerGRPC(t *testing.T, deposit string) *mmclient.Client {
+	t.Helper()
+	addr, cleanup, err := testserver.Start(testserver.Config{
+		PrivateKeyHex:        testBuildLimitOrderPrivateKeyHex,
+		DefaultDepositWallet: deposit,
+		DefaultSignatureType: 3,
+	})
+	if err != nil {
+		t.Fatalf("testserver.Start: %v", err)
+	}
+	t.Cleanup(cleanup)
+
+	c, err := mmclient.Dial(context.Background(), addr)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	return c
+}
+
 func TestBuildLimitOrder_ErrNoDepositWallet(t *testing.T) {
 	t.Setenv("POLYMARKET_DEPOSIT_WALLET", "")
 	t.Setenv("DEPOSIT_WALLET", "")
 
-	signer, err := NewSigner(testBuildLimitOrderPrivateKeyHex)
-	if err != nil {
-		t.Fatalf("NewSigner: %v", err)
-	}
-
+	mm := startTestMoneyManagerGRPC(t, "0x1111111111111111111111111111111111111111")
 	c := NewClient(WithBaseURL("http://unused.example"))
 	price := decimal.RequireFromString("0.5")
 	size := decimal.RequireFromString("1")
-	_, err = c.BuildLimitOrder(signer, "1", models.OrderSideBuy, price, size, false, 0)
+	_, err := c.BuildLimitOrder(context.Background(), mm, "1", models.OrderSideBuy, price, size, false, 0)
 	if err == nil || !strings.Contains(err.Error(), "deposit wallet not configured") {
 		t.Fatalf("expected deposit wallet error, got: %v", err)
 	}
@@ -218,16 +235,12 @@ func TestBuildLimitOrder_ErrInvalidSignatureTypeEnv(t *testing.T) {
 	t.Setenv("POLYMARKET_CLOB_SIGNATURE_TYPE", "not-a-number")
 	t.Setenv("POLYMARKET_DEPOSIT_WALLET", "")
 
-	signer, err := NewSigner(testBuildLimitOrderPrivateKeyHex)
-	if err != nil {
-		t.Fatalf("NewSigner: %v", err)
-	}
-
+	mm := startTestMoneyManagerGRPC(t, "0x1111111111111111111111111111111111111111")
 	deposit := "0x1111111111111111111111111111111111111111"
 	c := NewClient(WithDepositWallet(deposit))
 	price := decimal.RequireFromString("0.5")
 	size := decimal.RequireFromString("1")
-	_, err = c.BuildLimitOrder(signer, "1", models.OrderSideBuy, price, size, false, 0)
+	_, err := c.BuildLimitOrder(context.Background(), mm, "1", models.OrderSideBuy, price, size, false, 0)
 	if err == nil || !strings.Contains(err.Error(), "POLYMARKET_CLOB_SIGNATURE_TYPE") {
 		t.Fatalf("expected signature type env error, got: %v", err)
 	}
@@ -237,13 +250,8 @@ func TestBuildLimitOrder_SuccessBuyAndSell(t *testing.T) {
 	t.Setenv("POLYMARKET_CLOB_SIGNATURE_TYPE", "")
 	t.Setenv("POLYMARKET_DEPOSIT_WALLET", "")
 
-	signer, err := NewSigner(testBuildLimitOrderPrivateKeyHex)
-	if err != nil {
-		t.Fatalf("NewSigner: %v", err)
-	}
-
 	deposit := "0x1111111111111111111111111111111111111111"
-	wantDepositHex := common.HexToAddress(deposit).Hex()
+	mm := startTestMoneyManagerGRPC(t, deposit)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/time" {
@@ -255,14 +263,14 @@ func TestBuildLimitOrder_SuccessBuyAndSell(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithBaseURL(srv.URL), WithServerSignedTime(true), WithDepositWallet(deposit))
-	const tsMs int64 = 1730000999000
 	const exp int64 = 1800000000
 	price := decimal.RequireFromString("0.55")
 	size := decimal.RequireFromString("10")
 	tokenID := "123456789"
+	ctx := context.Background()
 
 	t.Run("buy", func(t *testing.T) {
-		p, err := c.BuildLimitOrder(signer, tokenID, models.OrderSideBuy, price, size, false, exp)
+		p, err := c.BuildLimitOrder(ctx, mm, tokenID, models.OrderSideBuy, price, size, false, exp)
 		if err != nil {
 			t.Fatalf("BuildLimitOrder: %v", err)
 		}
@@ -272,8 +280,8 @@ func TestBuildLimitOrder_SuccessBuyAndSell(t *testing.T) {
 		if p.Side != models.OrderSideBuy {
 			t.Fatalf("Side: got %q", p.Side)
 		}
-		if p.Maker != wantDepositHex || p.Signer != wantDepositHex {
-			t.Fatalf("maker/signer: got maker=%q signer=%q want %q", p.Maker, p.Signer, wantDepositHex)
+		if !strings.EqualFold(p.Maker, deposit) || !strings.EqualFold(p.Signer, deposit) {
+			t.Fatalf("maker/signer: got maker=%q signer=%q want %q", p.Maker, p.Signer, deposit)
 		}
 		if p.TokenID != tokenID {
 			t.Fatalf("TokenID: got %q", p.TokenID)
@@ -294,7 +302,7 @@ func TestBuildLimitOrder_SuccessBuyAndSell(t *testing.T) {
 	})
 
 	t.Run("sell", func(t *testing.T) {
-		p, err := c.BuildLimitOrder(signer, tokenID, models.OrderSideSell, price, size, true, exp)
+		p, err := c.BuildLimitOrder(ctx, mm, tokenID, models.OrderSideSell, price, size, true, exp)
 		if err != nil {
 			t.Fatalf("BuildLimitOrder: %v", err)
 		}

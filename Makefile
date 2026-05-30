@@ -4,7 +4,7 @@ SHELL := /bin/zsh
 
 .PHONY: run up down push-binary live-clob place-order test creds deploy-wallet venv localstack-init-secret
 .PHONY: get-stats fetch-rates fetch-career fill-rates-dr calibrate-alpha calibrate-form backtest sim
-.PHONY: test-workspace
+.PHONY: test-workspace check-balance
 
 run up down push-binary live-clob place-order test creds deploy-wallet venv localstack-init-secret:
 	$(MAKE) -C polymarket $@
@@ -12,6 +12,9 @@ run up down push-binary live-clob place-order test creds deploy-wallet venv loca
 get-stats fetch-rates fetch-career fill-rates-dr calibrate-alpha calibrate-form backtest sim:
 	$(MAKE) -C tennis $@
 
+check-balance:
+	$(MAKE) -C moneymanager check-balance
+
 test-workspace:
-	go test ./tennis/... ./polymarket/...
+	go test ./tennis/... ./polymarket/... ./moneymanager/...
 

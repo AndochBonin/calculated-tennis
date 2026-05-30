@@ -19,6 +19,7 @@ type GammaMarket struct {
 	Archived              bool               `json:"archived"`
 	AcceptingOrders       bool               `json:"acceptingOrders"`
 	EnableOrderBook       bool               `json:"enableOrderBook"`
+	NegRisk               bool               `json:"negRisk"`
 	ClobTokenIds          string             `json:"clobTokenIds"`
 	OutcomePrices         string             `json:"outcomePrices"`
 	Outcomes              string             `json:"outcomes"`

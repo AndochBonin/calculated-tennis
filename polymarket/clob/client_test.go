@@ -67,8 +67,8 @@ func TestOrderMessageTimestampMillisUsesServerTimeWhenEnabled(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithBaseURL(srv.URL), WithServerSignedTime(true))
-	if got := c.orderMessageTimestampMillis(); got != 1730000999000 {
-		t.Fatalf("orderMessageTimestampMillis: got %d want 1730000999000", got)
+	if got := c.OrderMessageTimestampMillis(); got != 1730000999000 {
+		t.Fatalf("OrderMessageTimestampMillis: got %d want 1730000999000", got)
 	}
 }
 
@@ -82,10 +82,10 @@ func TestOrderMessageTimestampMillisUsesLocalClockWhenServerTimeDisabled(t *test
 
 	c := NewClient(WithBaseURL(srv.URL), WithServerSignedTime(false))
 	before := time.Now().UnixMilli()
-	got := c.orderMessageTimestampMillis()
+	got := c.OrderMessageTimestampMillis()
 	after := time.Now().UnixMilli()
 	if got < before || got > after {
-		t.Fatalf("orderMessageTimestampMillis: got %d not in [%d,%d]", got, before, after)
+		t.Fatalf("OrderMessageTimestampMillis: got %d not in [%d,%d]", got, before, after)
 	}
 }
 

@@ -10,12 +10,16 @@ import (
 	"sync"
 	"syscall"
 
+	mmclient "github.com/AndochBonin/E3/moneymanager/pkg/client"
+	"github.com/AndochBonin/E3/moneymanager/pkg/order"
 	"github.com/AndochBonin/E3/polymarket/clob"
 	"github.com/AndochBonin/E3/polymarket/core"
 	"github.com/AndochBonin/E3/polymarket/gamma"
 	"github.com/AndochBonin/E3/polymarket/models"
 	"github.com/AndochBonin/E3/polymarket/secrets"
 	"github.com/joho/godotenv"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type gammaMarketsFetcher interface {
@@ -114,8 +118,9 @@ var (
 		return core.NewMarketFeedManager(categories)
 	}
 	newGammaClient = gamma.NewClient
-	newClobClient  = clob.NewClient
-	newSportsFeed  = core.NewSportsFeed
+	newClobClient      = clob.NewClient
+	dialMoneyManager   = mmclient.DialFromEnv
+	newSportsFeed      = core.NewSportsFeed
 	newATPTrader   = func(gammaClient *gamma.Client, clobClient *clob.Client, marketFeed *core.MarketFeed, sportsFeed *core.SportsFeed, market models.GammaMarket) traderRunner {
 		return core.NewATPTrader(gammaClient, clobClient, marketFeed, sportsFeed, market)
 	}
@@ -215,12 +220,117 @@ func startATPTraders(
 	return atpTraders, startedConditionIDs
 }
 
-// runSignalLogger drains signals until shutdown: when ctx is cancelled (root cancel runs before
-// explicit Stop) or when the signals channel is closed. Money Manager will handle this later.
+type signalMoneyManager interface {
+	ProcessSignal(ctx context.Context, p mmclient.ProcessSignalParams) (*order.Payload, error)
+}
+
+type signalClobClient interface {
+	OrderMessageTimestampMillis() int64
+	PlaceOrder(payload *models.OrderPayload, owner string, orderType models.OrderType) (*models.PlaceOrderResponse, error)
+}
+
+// runSignalExecutor drains trade signals: ProcessSignal via Money Manager, then PlaceOrder on CLOB.
+func runSignalExecutor(ctx context.Context, signalCh <-chan core.TradeSignal, clobClient signalClobClient, mm signalMoneyManager) {
+	runSignalExecutorWithHandler(ctx, signalCh, clobClient, mm, executeTradeSignal)
+}
+
+func runSignalExecutorWithHandler(
+	ctx context.Context,
+	signalCh <-chan core.TradeSignal,
+	clobClient signalClobClient,
+	mm signalMoneyManager,
+	onSignal func(context.Context, signalClobClient, signalMoneyManager, core.TradeSignal),
+) {
+	if onSignal == nil {
+		onSignal = executeTradeSignal
+	}
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case sig, ok := <-signalCh:
+				if !ok {
+					return
+				}
+				onSignal(ctx, clobClient, mm, sig)
+			}
+		}
+	}()
+}
+
+func executeTradeSignal(ctx context.Context, clobClient signalClobClient, mm signalMoneyManager, sig core.TradeSignal) {
+	logFields := append([]any{"side", sig.Side, "price", sig.Price, "neg_risk", sig.NegRisk},
+		core.AppendVerboseIDs("token_id", sig.TokenID)...)
+
+	if strings.TrimSpace(sig.TokenID) == "" {
+		slog.Warn("trade signal missing token_id", logFields...)
+		return
+	}
+	if strings.TrimSpace(sig.Price) == "" {
+		slog.Warn("trade signal missing price", logFields...)
+		return
+	}
+	if sig.Side != models.OrderSideBuy && sig.Side != models.OrderSideSell {
+		slog.Warn("trade signal invalid side", logFields...)
+		return
+	}
+	if clobClient == nil {
+		slog.Error("trade signal: clob client is nil", logFields...)
+		return
+	}
+	if mm == nil {
+		slog.Error("trade signal: money manager client is nil", logFields...)
+		return
+	}
+
+	payload, err := mm.ProcessSignal(ctx, mmclient.ProcessSignalParams{
+		TokenID:     sig.TokenID,
+		Side:        order.Side(sig.Side),
+		Price:       sig.Price,
+		NegRisk:     sig.NegRisk,
+		Expiration:  0,
+		TimestampMs: clobClient.OrderMessageTimestampMillis(),
+	})
+	if err != nil {
+		if st, ok := status.FromError(err); ok {
+			switch st.Code() {
+			case codes.FailedPrecondition, codes.InvalidArgument:
+				slog.Info("trade signal rejected", append([]any{"reason", st.Message()}, logFields...)...)
+				return
+			}
+		}
+		slog.Error("trade signal process failed", append([]any{"err", err}, logFields...)...)
+		return
+	}
+
+	orderPayload := clob.OrderPayloadFromMoneyManager(payload)
+	if orderPayload == nil {
+		slog.Error("trade signal: empty order payload", logFields...)
+		return
+	}
+
+	resp, err := clobClient.PlaceOrder(orderPayload, "", models.OrderTypeGTC)
+	if err != nil {
+		slog.Error("place order failed", append([]any{"err", err}, logFields...)...)
+		return
+	}
+
+	slog.Info("order placed",
+		append([]any{
+			"order_id", resp.OrderID,
+			"status", resp.Status,
+		}, logFields...)...,
+	)
+}
+
+// runSignalLogger drains signals until shutdown (logging only; used in tests).
 func runSignalLogger(ctx context.Context, signalCh <-chan core.TradeSignal) {
 	runSignalLoggerWithHandler(ctx, signalCh, func(sig core.TradeSignal) {
 		slog.Info("signal received",
-			append([]any{"side", sig.Side}, core.AppendVerboseIDs("token_id", sig.TokenID)...)...)
+			append([]any{"side", sig.Side, "price", sig.Price},
+				core.AppendVerboseIDs("token_id", sig.TokenID)...)...)
 	})
 }
 
@@ -303,11 +413,20 @@ func main() {
 
 	atpTraders, startedConditionIDs := startATPTraders(ctx, gammaClient, clobClient, marketFeed, sportsFeed, filtered)
 
+	mmClient, err := dialMoneyManager(ctx)
+	if err != nil {
+		feedManager.Stop()
+		sportsFeed.Stop()
+		slog.Error("failed to connect to money manager", "err", err, "addr", mmclient.AddrFromEnv())
+		os.Exit(1)
+	}
+	defer func() { _ = mmClient.Close() }()
+
 	registry := newTraderRegistry(ctx, 100)
 	for _, tr := range atpTraders {
 		registry.Register(tr)
 	}
-	runSignalLogger(ctx, registry.Signals())
+	runSignalExecutor(ctx, registry.Signals(), clobClient, mmClient)
 
 	discovery := core.NewATPMarketDiscovery(gammaClient, func(ctx context.Context, market models.GammaMarket) error {
 		tr := newATPTrader(gammaClient, clobClient, marketFeed, sportsFeed, market)

@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package moneymanager.v1;
+
+option go_package = "github.com/AndochBonin/E3/moneymanager/gen/moneymanager/v1;moneymanagerv1";
+
+// MoneyManagerService signs Polymarket CLOB orders and applies risk allocation.
+service MoneyManagerService {
+  // ProcessSignal risk-checks a trade intent, allocates size, signs, and returns an order payload.
+  rpc ProcessSignal(ProcessSignalRequest) returns (ProcessSignalResponse);
+  // SignOrder signs an explicit order (e.g. placeorder CLI) without signal-level risk rules.
+  rpc SignOrder(SignOrderRequest) returns (SignOrderResponse);
+}
+
+enum OrderSide {
+  ORDER_SIDE_UNSPECIFIED = 0;
+  ORDER_SIDE_BUY = 1;
+  ORDER_SIDE_SELL = 2;
+}
+
+// OrderPayload mirrors the Polymarket POST /order JSON shape.
+message OrderPayload {
+  string maker = 1;
+  string signer = 2;
+  string token_id = 3;
+  string maker_amount = 4;
+  string taker_amount = 5;
+  OrderSide side = 6;
+  string expiration = 7;
+  string timestamp = 8;
+  string metadata = 9;
+  string builder = 10;
+  string signature = 11;
+  int64 salt = 12;
+  int32 signature_type = 13;
+}
+
+message ProcessSignalRequest {
+  string token_id = 1;
+  OrderSide side = 2;
+  string price = 3;
+  bool neg_risk = 4;
+  int64 expiration = 5;
+  int64 timestamp_ms = 6;
+}
+
+message ProcessSignalResponse {
+  OrderPayload order = 1;
+}
+
+message SignOrderRequest {
+  string token_id = 1;
+  OrderSide side = 2;
+  string price = 3;
+  string size = 4;
+  bool neg_risk = 5;
+  int64 expiration = 6;
+  int64 timestamp_ms = 7;
+  string deposit_wallet = 8;
+  uint32 signature_type = 9;
+}
+
+message SignOrderResponse {
+  OrderPayload order = 1;
+}

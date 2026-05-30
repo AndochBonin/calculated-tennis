@@ -29,6 +29,7 @@ type ATPTrader struct {
 	marketFeed  *MarketFeed
 	sportsFeed  *SportsFeed
 	market      models.GammaMarket
+	negRisk     bool
 	marketSubs  []atpMarketSubscription
 	sportsSub   *atpSportsSubscription
 	signals     chan TradeSignal
@@ -50,6 +51,7 @@ func NewATPTrader(
 		marketFeed:  marketFeed,
 		sportsFeed:  sportsFeed,
 		market:      market,
+		negRisk:     market.NegRisk,
 		signals:     make(chan TradeSignal, 100),
 		stop:        make(chan struct{}),
 	}
@@ -198,14 +200,27 @@ func (t *ATPTrader) handleMarket(tokenID string, name string, event any) {
 			if change.AssetID != tokenID {
 				continue
 			}
-			// calculate what to trade signal to send
+			price := strings.TrimSpace(change.Price)
+			if price == "" {
+				continue
+			}
+			side := change.Side
+			if side != models.OrderSideBuy && side != models.OrderSideSell {
+				continue
+			}
 			slog.Debug("price event",
 				append([]any{
 					"name", name,
-					"side", change.Side,
-					"price", change.Price,
+					"side", side,
+					"price", price,
 				}, AppendVerboseIDs("token_id", tokenID)...)...,
 			)
+			t.emitSignal(TradeSignal{
+				TokenID: tokenID,
+				Side:    side,
+				Price:   price,
+				NegRisk: t.negRisk,
+			})
 		}
 	case models.BookEvent:
 		slog.Debug("book event",
@@ -307,4 +322,17 @@ func (t *ATPTrader) Stop() {
 
 func (t *ATPTrader) Signals() <-chan TradeSignal {
 	return t.signals
+}
+
+func (t *ATPTrader) emitSignal(sig TradeSignal) {
+	select {
+	case <-t.stop:
+		return
+	case t.signals <- sig:
+	default:
+		slog.Warn("trade signal channel full, dropping signal",
+			append([]any{"side", sig.Side, "price", sig.Price},
+				AppendVerboseIDs("token_id", sig.TokenID)...)...,
+		)
+	}
 }

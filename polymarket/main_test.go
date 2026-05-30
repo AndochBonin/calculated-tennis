@@ -2,16 +2,22 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	mmclient "github.com/AndochBonin/E3/moneymanager/pkg/client"
+	"github.com/AndochBonin/E3/moneymanager/pkg/order"
+	"github.com/AndochBonin/E3/moneymanager/pkg/testserver"
 	"github.com/AndochBonin/E3/polymarket/clob"
 	"github.com/AndochBonin/E3/polymarket/core"
 	"github.com/AndochBonin/E3/polymarket/gamma"
@@ -472,4 +478,214 @@ func TestShutdownStopsAndCancels(t *testing.T) {
 	if !fm.stopped {
 		t.Fatal("expected feed manager Stop to be called")
 	}
+}
+
+const testSignalExecutorPrivKeyHex = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+const testSignalExecutorDeposit = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+
+func startTestMoneyManagerForSignals(t *testing.T) *mmclient.Client {
+	t.Helper()
+	addr, cleanup, err := testserver.Start(testserver.Config{
+		PrivateKeyHex:        testSignalExecutorPrivKeyHex,
+		DefaultDepositWallet: testSignalExecutorDeposit,
+		DefaultSignatureType: 3,
+	})
+	if err != nil {
+		t.Fatalf("testserver.Start: %v", err)
+	}
+	t.Cleanup(cleanup)
+
+	c, err := mmclient.Dial(context.Background(), addr)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	return c
+}
+
+func TestRunSignalExecutorProcessAndPlace(t *testing.T) {
+	mm := startTestMoneyManagerForSignals(t)
+
+	var placeCalls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/order" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		placeCalls.Add(1)
+		var req models.PlaceOrderRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if req.Order.TokenID == "" || req.Order.Signature == "" {
+			t.Fatalf("order missing token_id or signature: %+v", req.Order)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(models.PlaceOrderResponse{
+			Success: true,
+			OrderID: "order-123",
+			Status:  "live",
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	t.Setenv("POLYMARKET_API_KEY", "550e8400-e29b-41d4-a716-446655440000")
+	t.Setenv("POLYMARKET_API_SECRET", "AQIDBA==")
+	t.Setenv("POLYMARKET_PASSPHRASE", "p")
+	t.Setenv("POLYMARKET_ADDRESS", "0xabc")
+	clobClient := clob.NewClient(clob.WithBaseURL(srv.URL))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	signalCh := make(chan core.TradeSignal, 1)
+	signalCh <- core.TradeSignal{
+		TokenID: "12345",
+		Side:    models.OrderSideBuy,
+		Price:   "0.50",
+	}
+	close(signalCh)
+
+	done := make(chan struct{})
+	runSignalExecutorWithHandler(ctx, signalCh, clobClient, mm, func(ctx context.Context, c signalClobClient, m signalMoneyManager, sig core.TradeSignal) {
+		executeTradeSignal(ctx, c, m, sig)
+		close(done)
+	})
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for signal executor")
+	}
+	if placeCalls.Load() != 1 {
+		t.Fatalf("PlaceOrder calls = %d, want 1", placeCalls.Load())
+	}
+}
+
+func TestRunSignalExecutorRejectsSellWithoutPlace(t *testing.T) {
+	mm := startTestMoneyManagerForSignals(t)
+
+	var placeCalls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		placeCalls.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+
+	t.Setenv("POLYMARKET_API_KEY", "550e8400-e29b-41d4-a716-446655440000")
+	t.Setenv("POLYMARKET_API_SECRET", "AQIDBA==")
+	t.Setenv("POLYMARKET_PASSPHRASE", "p")
+	t.Setenv("POLYMARKET_ADDRESS", "0xabc")
+	clobClient := clob.NewClient(clob.WithBaseURL(srv.URL))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	signalCh := make(chan core.TradeSignal, 1)
+	signalCh <- core.TradeSignal{
+		TokenID: "12345",
+		Side:    models.OrderSideSell,
+		Price:   "0.50",
+	}
+	close(signalCh)
+
+	done := make(chan struct{})
+	runSignalExecutorWithHandler(ctx, signalCh, clobClient, mm, func(ctx context.Context, c signalClobClient, m signalMoneyManager, sig core.TradeSignal) {
+		executeTradeSignal(ctx, c, m, sig)
+		close(done)
+	})
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for signal executor")
+	}
+	if placeCalls.Load() != 0 {
+		t.Fatalf("PlaceOrder calls = %d, want 0", placeCalls.Load())
+	}
+}
+
+func TestRunSignalExecutorWrapper(t *testing.T) {
+	mm := startTestMoneyManagerForSignals(t)
+
+	var placeCalls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/time":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("1730000999"))
+		case "/order":
+			placeCalls.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(models.PlaceOrderResponse{Success: true, OrderID: "oid"})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	t.Setenv("POLYMARKET_API_KEY", "550e8400-e29b-41d4-a716-446655440000")
+	t.Setenv("POLYMARKET_API_SECRET", "AQIDBA==")
+	t.Setenv("POLYMARKET_PASSPHRASE", "p")
+	t.Setenv("POLYMARKET_ADDRESS", "0xabc")
+	clobClient := clob.NewClient(clob.WithBaseURL(srv.URL), clob.WithServerSignedTime(true))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	signalCh := make(chan core.TradeSignal, 1)
+	signalCh <- core.TradeSignal{
+		TokenID: "12345",
+		Side:    models.OrderSideBuy,
+		Price:   "0.50",
+	}
+	close(signalCh)
+
+	runSignalExecutor(ctx, signalCh, clobClient, mm)
+
+	deadline := time.After(3 * time.Second)
+	for placeCalls.Load() < 1 {
+		select {
+		case <-deadline:
+			t.Fatalf("PlaceOrder calls = %d, want 1", placeCalls.Load())
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+}
+
+func TestExecuteTradeSignalSkipsIncomplete(t *testing.T) {
+	var processCalls atomic.Int32
+	fakeMM := &fakeSignalMoneyManager{onProcess: func() { processCalls.Add(1) }}
+	fakeClob := &fakeSignalClobClient{}
+
+	executeTradeSignal(context.Background(), fakeClob, fakeMM, core.TradeSignal{TokenID: "tok"})
+	if processCalls.Load() != 0 {
+		t.Fatalf("ProcessSignal calls = %d, want 0", processCalls.Load())
+	}
+}
+
+type fakeSignalMoneyManager struct {
+	onProcess func()
+}
+
+func (f *fakeSignalMoneyManager) ProcessSignal(ctx context.Context, p mmclient.ProcessSignalParams) (*order.Payload, error) {
+	if f.onProcess != nil {
+		f.onProcess()
+	}
+	return &order.Payload{Signature: "0xsig", TokenID: p.TokenID}, nil
+}
+
+type fakeSignalClobClient struct {
+	ts int64
+}
+
+func (f *fakeSignalClobClient) OrderMessageTimestampMillis() int64 {
+	if f.ts != 0 {
+		return f.ts
+	}
+	return 1_700_000_123
+}
+
+func (f *fakeSignalClobClient) PlaceOrder(payload *models.OrderPayload, owner string, orderType models.OrderType) (*models.PlaceOrderResponse, error) {
+	return &models.PlaceOrderResponse{Success: true, OrderID: "oid"}, nil
 }

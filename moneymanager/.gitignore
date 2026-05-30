@@ -1,0 +1,5 @@
+.env
+secret.json
+*.out
+dist/
+.DS_Store

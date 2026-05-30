@@ -19,8 +19,8 @@
 // Deposit / Safe address for order EIP-712 TypedDataSign (must be set for BuildLimitOrder):
 // POLYMARKET_DEPOSIT_WALLET, or DEPOSIT_WALLET (e.g. from cmd/python/deploy_wallet.py output).
 // This is not necessarily the same as POLYMARKET_ADDRESS.
-// Private key for EIP-712 signing: POLYMARKET_PRIVATE_KEY, or METAMASK_KEY (same as
-// cmd/python/generate_creds.py).
+// Order signing runs in moneymanager (gRPC): start cmd/server and set MONEYMANAGER_GRPC_ADDR
+// (default 127.0.0.1:50051). Private key stays in moneymanager only.
 // Optional: POLYMARKET_CLOB_SERVER_TIME=true; POLYMARKET_CLOB_BASE_URL; POLYMARKET_USER_ADDRESS;
 // POLYMARKET_DATA_API_BASE_URL.
 package main
@@ -35,6 +35,7 @@ import (
 	"os"
 	"strings"
 
+	mmclient "github.com/AndochBonin/E3/moneymanager/pkg/client"
 	"github.com/AndochBonin/E3/polymarket/clob"
 	"github.com/AndochBonin/E3/polymarket/internal/prompt"
 	"github.com/AndochBonin/E3/polymarket/models"
@@ -75,26 +76,21 @@ func exitRun() int {
 		return 1
 	}
 
-	keyHex, err := privateKeyFromEnv()
+	ctx := context.Background()
+	mm, err := mmclient.DialFromEnv(ctx)
 	if err != nil {
-		log.Error("private key", "err", err)
+		log.Error("money manager", "err", err, "addr", mmclient.AddrFromEnv())
 		return 1
 	}
-
-	signer, err := clob.NewSigner(keyHex)
-	if err != nil {
-		log.Error("signer", "err", err)
-		return 1
-	}
+	defer mm.Close()
 
 	client := clob.NewClient()
 	polyAddr := client.AuthAddress()
 	depo := client.DepositWallet()
 	log.Info("addresses",
-		"eoa_from_private_key", signer.Address(),
 		"poly_address_header", polyAddr,
 		"deposit_wallet", depo,
-		"eoa_matches_poly_address", strings.EqualFold(signer.Address(), polyAddr),
+		"money_manager_grpc", mmclient.AddrFromEnv(),
 	)
 	size := decimal.NewFromInt(5)
 
@@ -104,7 +100,7 @@ func exitRun() int {
 		return 1
 	}
 
-	payload, err := client.BuildLimitOrder(signer, tokenID, models.OrderSideBuy, price, size, book.NegRisk, 0)
+	payload, err := client.BuildLimitOrder(ctx, mm, tokenID, models.OrderSideBuy, price, size, book.NegRisk, 0)
 	if err != nil {
 		log.Error("build order", "err", err)
 		return 1
@@ -114,7 +110,6 @@ func exitRun() int {
 		"maker", payload.Maker,
 		"signer", payload.Signer,
 		"maker_is_deposit_wallet", strings.EqualFold(payload.Maker, depo),
-		"signer_is_eoa_key", strings.EqualFold(payload.Signer, signer.Address()),
 		"signer_matches_poly_address", strings.EqualFold(payload.Signer, polyAddr),
 		"packed_signature_byte_len", (len(payload.Signature)-2)/2,
 	)
@@ -128,7 +123,7 @@ func exitRun() int {
 	log.Info("placed",
 		"orderID", resp.OrderID,
 		"status", resp.Status,
-		"signer", signer.Address(),
+		"signer", payload.Signer,
 	)
 	return 0
 }
@@ -162,13 +157,4 @@ func resolveInputs(stdin *os.File, args []string, priceFlag string, interactive 
 		return "", "", errUsage
 	}
 	return tokenID, priceStr, nil
-}
-
-func privateKeyFromEnv() (string, error) {
-	for _, k := range []string{"POLYMARKET_PRIVATE_KEY", "METAMASK_KEY"} {
-		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
-			return v, nil
-		}
-	}
-	return "", fmt.Errorf("set POLYMARKET_PRIVATE_KEY or METAMASK_KEY")
 }

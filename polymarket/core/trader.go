@@ -10,6 +10,8 @@ import (
 type TradeSignal struct {
 	TokenID string
 	Side    models.OrderSide
+	Price   string // decimal string from the feed
+	NegRisk bool
 }
 
 // Trader is the interface for a topic-specific trading strategy.
