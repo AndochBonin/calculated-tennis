@@ -4,7 +4,7 @@ package testserver
 import (
 	"net"
 
-	"github.com/AndochBonin/E3/moneymanager/internal/risk"
+	"github.com/AndochBonin/E3/moneymanager/pkg/risk"
 	"github.com/AndochBonin/E3/moneymanager/internal/server"
 	"github.com/AndochBonin/E3/moneymanager/internal/signer"
 	"github.com/AndochBonin/E3/moneymanager/internal/testutil"

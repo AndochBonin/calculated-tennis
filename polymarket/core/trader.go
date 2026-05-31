@@ -8,10 +8,11 @@ import (
 
 // TradeSignal represents a trading decision emitted by a trader.
 type TradeSignal struct {
-	TokenID string
-	Side    models.OrderSide
-	Price   string // decimal string from the feed
-	NegRisk bool
+	TokenID        string
+	Side           models.OrderSide
+	Price          string  // decimal string from the feed
+	NegRisk        bool
+	WinProbability float64 // model P(outcome wins), (0,1]; required for ProcessSignal
 }
 
 // Trader is the interface for a topic-specific trading strategy.

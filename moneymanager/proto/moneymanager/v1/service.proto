@@ -42,6 +42,8 @@ message ProcessSignalRequest {
   bool neg_risk = 4;
   int64 expiration = 5;
   int64 timestamp_ms = 6;
+  // Model P(win) for token/side, (0,1]; required for ProcessSignal.
+  optional double win_probability = 7;
 }
 
 message ProcessSignalResponse {

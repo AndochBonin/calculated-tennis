@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/AndochBonin/E3/moneymanager/internal/order"
-	"github.com/AndochBonin/E3/moneymanager/internal/risk"
+	"github.com/AndochBonin/E3/moneymanager/pkg/risk"
 	"github.com/AndochBonin/E3/moneymanager/internal/signer"
 	moneymanagerv1 "github.com/AndochBonin/E3/moneymanager/gen/moneymanager/v1"
 	"github.com/ethereum/go-ethereum/common"
@@ -124,7 +124,19 @@ func (s *Server) ProcessSignal(ctx context.Context, req *moneymanagerv1.ProcessS
 		return nil, status.Errorf(codes.Internal, "invalid default deposit wallet %q", depositWallet)
 	}
 
-	size, err := s.cfg.Allocator.Allocate(ctx, side, price)
+	if req.WinProbability == nil {
+		return nil, status.Error(codes.InvalidArgument, "win_probability is required")
+	}
+	winProb := req.GetWinProbability()
+	riskSide, err := riskSideFromOrder(side)
+	if err != nil {
+		return nil, err
+	}
+	if err := risk.ValidatePositiveEV(winProb, riskSide, price); err != nil {
+		return nil, err
+	}
+
+	size, err := s.cfg.Allocator.Allocate(ctx, risk.Side(side), price)
 	if err != nil {
 		return nil, err
 	}
@@ -145,6 +157,17 @@ func (s *Server) ProcessSignal(ctx context.Context, req *moneymanagerv1.ProcessS
 	}
 
 	return &moneymanagerv1.ProcessSignalResponse{Order: payloadToProto(payload)}, nil
+}
+
+func riskSideFromOrder(s order.Side) (risk.Side, error) {
+	switch s {
+	case order.SideBuy:
+		return risk.SideBuy, nil
+	case order.SideSell:
+		return risk.SideSell, nil
+	default:
+		return "", status.Errorf(codes.InvalidArgument, "unknown side %q", s)
+	}
 }
 
 func sideFromProto(s moneymanagerv1.OrderSide) (order.Side, error) {

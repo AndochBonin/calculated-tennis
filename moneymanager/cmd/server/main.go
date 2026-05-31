@@ -26,7 +26,7 @@ import (
 	moneymanagerv1 "github.com/AndochBonin/E3/moneymanager/gen/moneymanager/v1"
 	"github.com/AndochBonin/E3/moneymanager/internal/balance"
 	"github.com/AndochBonin/E3/moneymanager/internal/env"
-	"github.com/AndochBonin/E3/moneymanager/internal/risk"
+	"github.com/AndochBonin/E3/moneymanager/pkg/risk"
 	"github.com/AndochBonin/E3/moneymanager/internal/secrets"
 	"github.com/AndochBonin/E3/moneymanager/internal/server"
 	"github.com/AndochBonin/E3/moneymanager/internal/signer"

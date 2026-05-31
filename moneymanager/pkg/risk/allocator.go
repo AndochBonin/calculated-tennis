@@ -8,17 +8,26 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/AndochBonin/E3/moneymanager/internal/balance"
-	"github.com/AndochBonin/E3/moneymanager/internal/order"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
+// USDCDecimals is the decimal precision for Polygon USDC collateral (micro-USDC units).
+const USDCDecimals = 6
+
 const (
 	defaultMaxPctBalance = 0.05
-	defaultMinShareSize    = 5
+	defaultMinShareSize  = 5
+)
+
+// Side is the direction of a trade signal for allocation.
+type Side string
+
+const (
+	SideBuy  Side = "BUY"
+	SideSell Side = "SELL"
 )
 
 // BalanceReader fetches live USDC collateral for allocation.
@@ -89,8 +98,8 @@ func NewAllocator(bal BalanceReader, cfg Config) *Allocator {
 }
 
 // Allocate returns share size for a trade signal. Only BUY is supported in v1.
-func (a *Allocator) Allocate(ctx context.Context, side order.Side, price decimal.Decimal) (decimal.Decimal, error) {
-	if side != order.SideBuy {
+func (a *Allocator) Allocate(ctx context.Context, side Side, price decimal.Decimal) (decimal.Decimal, error) {
+	if side != SideBuy {
 		return decimal.Zero, status.Errorf(codes.FailedPrecondition, "sell signals are not supported by risk v1")
 	}
 	if !price.IsPositive() {
@@ -102,7 +111,7 @@ func (a *Allocator) Allocate(ctx context.Context, side order.Side, price decimal
 		return decimal.Zero, status.Errorf(codes.Internal, "read usdc balance: %v", err)
 	}
 
-	available := decimal.NewFromBigInt(raw, -balance.USDCDecimals)
+	available := decimal.NewFromBigInt(raw, -USDCDecimals)
 	if !available.IsPositive() {
 		return decimal.Zero, status.Errorf(codes.FailedPrecondition, "insufficient USDC balance")
 	}
@@ -122,7 +131,7 @@ func (a *Allocator) Allocate(ctx context.Context, side order.Side, price decimal
 	if size.LessThan(a.cfg.MinShareSize) {
 		return decimal.Zero, status.Errorf(codes.FailedPrecondition,
 			"allocated size %s is below minimum %s (balance %s USDC, cap %s%%)",
-			size, a.cfg.MinShareSize, available.StringFixed(balance.USDCDecimals),
+			size, a.cfg.MinShareSize, available.StringFixed(USDCDecimals),
 			a.cfg.MaxPctBalance.Mul(decimal.NewFromInt(100)).StringFixed(2))
 	}
 

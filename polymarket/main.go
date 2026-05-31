@@ -12,6 +12,7 @@ import (
 
 	mmclient "github.com/AndochBonin/E3/moneymanager/pkg/client"
 	"github.com/AndochBonin/E3/moneymanager/pkg/order"
+	"github.com/AndochBonin/E3/moneymanager/pkg/risk"
 	"github.com/AndochBonin/E3/polymarket/clob"
 	"github.com/AndochBonin/E3/polymarket/core"
 	"github.com/AndochBonin/E3/polymarket/gamma"
@@ -276,6 +277,10 @@ func executeTradeSignal(ctx context.Context, clobClient signalClobClient, mm sig
 		slog.Warn("trade signal invalid side", logFields...)
 		return
 	}
+	if err := risk.ValidateWinProbability(sig.WinProbability); err != nil {
+		slog.Warn("trade signal invalid win_probability", append([]any{"err", err}, logFields...)...)
+		return
+	}
 	if clobClient == nil {
 		slog.Error("trade signal: clob client is nil", logFields...)
 		return
@@ -286,12 +291,13 @@ func executeTradeSignal(ctx context.Context, clobClient signalClobClient, mm sig
 	}
 
 	payload, err := mm.ProcessSignal(ctx, mmclient.ProcessSignalParams{
-		TokenID:     sig.TokenID,
-		Side:        order.Side(sig.Side),
-		Price:       sig.Price,
-		NegRisk:     sig.NegRisk,
-		Expiration:  0,
-		TimestampMs: clobClient.OrderMessageTimestampMillis(),
+		TokenID:         sig.TokenID,
+		Side:            order.Side(sig.Side),
+		Price:           sig.Price,
+		NegRisk:         sig.NegRisk,
+		Expiration:      0,
+		TimestampMs:     clobClient.OrderMessageTimestampMillis(),
+		WinProbability:  sig.WinProbability,
 	})
 	if err != nil {
 		if st, ok := status.FromError(err); ok {

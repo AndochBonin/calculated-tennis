@@ -1,2 +1,2 @@
-// Package risk applies allocation limits and approve/reject rules for trade signals.
+// Package risk re-exports allocation types from pkg/risk for in-module callers.
 package risk

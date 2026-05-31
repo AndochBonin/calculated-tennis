@@ -40,6 +40,27 @@ func DecideBet(winsA, sims int, minPick float64, avgW, avgL float64) (side BetSi
 	return BetSideNone, 0, true
 }
 
+// DecideSimFavoredSide backs whichever player has the higher simulated win rate.
+// Ties resolve to player A (same as DecideFavoriteBet). Does not apply MinPick.
+// ok is false when sim inputs are invalid or the chosen side's odds are non-positive.
+func DecideSimFavoredSide(winsA, sims int, avgW, avgL float64) (side BetSide, odds float64, ok bool) {
+	if sims <= 0 || winsA < 0 || winsA > sims {
+		return BetSideNone, 0, false
+	}
+	winPctA := float64(winsA) / float64(sims)
+	winPctB := 1 - winPctA
+	if winPctB > winPctA {
+		if avgL <= 0 {
+			return BetSideNone, 0, false
+		}
+		return BetSideB, avgL, true
+	}
+	if avgW <= 0 {
+		return BetSideNone, 0, false
+	}
+	return BetSideA, avgW, true
+}
+
 // DecideFavoriteBet backs the pre-match favorite (lower decimal odds).
 // Ties on avgW == avgL resolve to player A. ok is false when either odd is non-positive.
 func DecideFavoriteBet(avgW, avgL float64) (side BetSide, odds float64, ok bool) {

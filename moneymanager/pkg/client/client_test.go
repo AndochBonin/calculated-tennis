@@ -66,10 +66,11 @@ func TestProcessSignal_grpcIntegration(t *testing.T) {
 	c := dialTestServer(t, nil)
 
 	payload, err := c.ProcessSignal(context.Background(), ProcessSignalParams{
-		TokenID:     "12345",
-		Side:        order.SideBuy,
-		Price:       "0.50",
-		TimestampMs: 1_700_000_123,
+		TokenID:        "12345",
+		Side:           order.SideBuy,
+		Price:          "0.50",
+		TimestampMs:    1_700_000_123,
+		WinProbability: 0.55,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -86,10 +87,11 @@ func TestProcessSignal_sellRejected(t *testing.T) {
 	c := dialTestServer(t, nil)
 
 	_, err := c.ProcessSignal(context.Background(), ProcessSignalParams{
-		TokenID:     "12345",
-		Side:        order.SideSell,
-		Price:       "0.50",
-		TimestampMs: 1_700_000_123,
+		TokenID:        "12345",
+		Side:           order.SideSell,
+		Price:          "0.50",
+		TimestampMs:    1_700_000_123,
+		WinProbability: 0.55,
 	})
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("code: got %v want FailedPrecondition", status.Code(err))
@@ -101,10 +103,40 @@ func TestProcessSignal_insufficientBalance(t *testing.T) {
 	c := dialTestServer(t, &zero)
 
 	_, err := c.ProcessSignal(context.Background(), ProcessSignalParams{
+		TokenID:        "12345",
+		Side:           order.SideBuy,
+		Price:          "0.50",
+		TimestampMs:    1_700_000_123,
+		WinProbability: 0.55,
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("code: got %v want FailedPrecondition", status.Code(err))
+	}
+}
+
+func TestProcessSignal_missingWinProbability(t *testing.T) {
+	c := dialTestServer(t, nil)
+
+	_, err := c.ProcessSignal(context.Background(), ProcessSignalParams{
 		TokenID:     "12345",
 		Side:        order.SideBuy,
 		Price:       "0.50",
 		TimestampMs: 1_700_000_123,
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code: got %v want InvalidArgument", status.Code(err))
+	}
+}
+
+func TestProcessSignal_nonPositiveEV(t *testing.T) {
+	c := dialTestServer(t, nil)
+
+	_, err := c.ProcessSignal(context.Background(), ProcessSignalParams{
+		TokenID:        "12345",
+		Side:           order.SideBuy,
+		Price:          "0.50",
+		TimestampMs:    1_700_000_123,
+		WinProbability: 0.4,
 	})
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("code: got %v want FailedPrecondition", status.Code(err))

@@ -11,11 +11,11 @@ func TestLoadMatchesWithOddsCSV_synthetic(t *testing.T) {
 	t.Parallel()
 
 	csv := strings.Join([]string{
-		"tourney_date,match_num,winner_name,loser_name,surface,score,best_of,AvgW,AvgL",
-		"20250110,100,Taylor Fritz,Tomas Machac,Hard,6-4 6-3,3,1.5,2.5",
-		"20250111,101,Daniil Medvedev,Novak Djokovic,Clay,6-7(4) 6-5 RET,3,1.4,2.6",
-		"20250112,102,Carlos Alcaraz,Jannik Sinner,Grass,6-2 6-2,3,,2.0",
-		"20250113,103,Roger Federer,Andy Murray,Hard,6-1 6-2,5,1.8,2.2",
+		"tourney_id,tourney_date,match_num,winner_name,loser_name,surface,score,best_of,AvgW,AvgL",
+		"2025-TEST,20250110,100,Taylor Fritz,Tomas Machac,Hard,6-4 6-3,3,1.5,2.5",
+		"2025-TEST,20250111,101,Daniil Medvedev,Novak Djokovic,Clay,6-7(4) 6-5 RET,3,1.4,2.6",
+		"2025-TEST,20250112,102,Carlos Alcaraz,Jannik Sinner,Grass,6-2 6-2,3,,2.0",
+		"2025-TEST,20250113,103,Roger Federer,Andy Murray,Hard,6-1 6-2,5,1.8,2.2",
 	}, "\n")
 
 	rows, err := LoadMatchesWithOddsCSV(strings.NewReader(csv))
@@ -27,8 +27,8 @@ func TestLoadMatchesWithOddsCSV_synthetic(t *testing.T) {
 	}
 
 	m := rows[0]
-	if m.TourneyDate != 20250110 || m.MatchNum != 100 {
-		t.Fatalf("date/num: %d %d", m.TourneyDate, m.MatchNum)
+	if m.TourneyID != "2025-TEST" || m.TourneyDate != 20250110 || m.MatchNum != 100 {
+		t.Fatalf("tourney/date/num: %q %d %d", m.TourneyID, m.TourneyDate, m.MatchNum)
 	}
 	if m.PlayerA != "Taylor Fritz" || m.PlayerB != "Tomas Machac" {
 		t.Fatalf("players: %q vs %q", m.PlayerA, m.PlayerB)

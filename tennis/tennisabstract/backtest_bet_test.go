@@ -105,6 +105,88 @@ func TestDecideBet(t *testing.T) {
 	}
 }
 
+func TestDecideSimFavoredSide(t *testing.T) {
+	t.Parallel()
+
+	const avgW, avgL = 1.85, 2.10
+
+	cases := []struct {
+		name    string
+		winsA   int
+		sims    int
+		avgW    float64
+		avgL    float64
+		want    BetSide
+		wantOdd float64
+		wantOK  bool
+	}{
+		{
+			name: "A higher sim rate", winsA: 2600, sims: 5000,
+			avgW: avgW, avgL: avgL, want: BetSideA, wantOdd: avgW, wantOK: true,
+		},
+		{
+			name: "B higher sim rate", winsA: 2400, sims: 5000,
+			avgW: avgW, avgL: avgL, want: BetSideB, wantOdd: avgL, wantOK: true,
+		},
+		{
+			name: "tie picks A", winsA: 2500, sims: 5000,
+			avgW: avgW, avgL: avgL, want: BetSideA, wantOdd: avgW, wantOK: true,
+		},
+		{
+			name: "all wins A", winsA: 5000, sims: 5000,
+			avgW: avgW, avgL: avgL, want: BetSideA, wantOdd: avgW, wantOK: true,
+		},
+		{
+			name: "zero wins A bets B", winsA: 0, sims: 5000,
+			avgW: avgW, avgL: avgL, want: BetSideB, wantOdd: avgL, wantOK: true,
+		},
+		{
+			name: "invalid winsA negative", winsA: -1, sims: 5000,
+			avgW: avgW, avgL: avgL, wantOK: false,
+		},
+		{
+			name: "invalid winsA over sims", winsA: 5001, sims: 5000,
+			avgW: avgW, avgL: avgL, wantOK: false,
+		},
+		{
+			name: "invalid sims zero", winsA: 100, sims: 0,
+			avgW: avgW, avgL: avgL, wantOK: false,
+		},
+		{
+			name: "missing avgW on A pick", winsA: 2600, sims: 5000,
+			avgW: 0, avgL: avgL, wantOK: false,
+		},
+		{
+			name: "missing avgL on B pick", winsA: 2400, sims: 5000,
+			avgW: avgW, avgL: 0, wantOK: false,
+		},
+		{
+			name: "missing avgW on tie", winsA: 2500, sims: 5000,
+			avgW: 0, avgL: avgL, wantOK: false,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			gotSide, gotOdd, gotOK := DecideSimFavoredSide(tc.winsA, tc.sims, tc.avgW, tc.avgL)
+			if gotOK != tc.wantOK {
+				t.Fatalf("ok = %v, want %v (side=%v odds=%v)", gotOK, tc.wantOK, gotSide, gotOdd)
+			}
+			if !tc.wantOK {
+				return
+			}
+			if gotSide != tc.want {
+				t.Errorf("side = %v, want %v", gotSide, tc.want)
+			}
+			if gotOdd != tc.wantOdd {
+				t.Errorf("odds = %v, want %v", gotOdd, tc.wantOdd)
+			}
+		})
+	}
+}
+
 func TestDecideFavoriteBet(t *testing.T) {
 	t.Parallel()
 

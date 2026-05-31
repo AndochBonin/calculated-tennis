@@ -539,9 +539,10 @@ func TestRunSignalExecutorProcessAndPlace(t *testing.T) {
 
 	signalCh := make(chan core.TradeSignal, 1)
 	signalCh <- core.TradeSignal{
-		TokenID: "12345",
-		Side:    models.OrderSideBuy,
-		Price:   "0.50",
+		TokenID:        "12345",
+		Side:           models.OrderSideBuy,
+		Price:          "0.50",
+		WinProbability: 0.55,
 	}
 	close(signalCh)
 
@@ -582,9 +583,10 @@ func TestRunSignalExecutorRejectsSellWithoutPlace(t *testing.T) {
 
 	signalCh := make(chan core.TradeSignal, 1)
 	signalCh <- core.TradeSignal{
-		TokenID: "12345",
-		Side:    models.OrderSideSell,
-		Price:   "0.50",
+		TokenID:        "12345",
+		Side:           models.OrderSideSell,
+		Price:          "0.50",
+		WinProbability: 0.55,
 	}
 	close(signalCh)
 
@@ -634,9 +636,10 @@ func TestRunSignalExecutorWrapper(t *testing.T) {
 
 	signalCh := make(chan core.TradeSignal, 1)
 	signalCh <- core.TradeSignal{
-		TokenID: "12345",
-		Side:    models.OrderSideBuy,
-		Price:   "0.50",
+		TokenID:        "12345",
+		Side:           models.OrderSideBuy,
+		Price:          "0.50",
+		WinProbability: 0.55,
 	}
 	close(signalCh)
 
@@ -661,6 +664,15 @@ func TestExecuteTradeSignalSkipsIncomplete(t *testing.T) {
 	executeTradeSignal(context.Background(), fakeClob, fakeMM, core.TradeSignal{TokenID: "tok"})
 	if processCalls.Load() != 0 {
 		t.Fatalf("ProcessSignal calls = %d, want 0", processCalls.Load())
+	}
+
+	executeTradeSignal(context.Background(), fakeClob, fakeMM, core.TradeSignal{
+		TokenID: "tok",
+		Side:    models.OrderSideBuy,
+		Price:   "0.50",
+	})
+	if processCalls.Load() != 0 {
+		t.Fatalf("ProcessSignal calls with missing win_probability = %d, want 0", processCalls.Load())
 	}
 }
 

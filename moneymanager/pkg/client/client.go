@@ -85,12 +85,13 @@ type SignLimitOrderParams struct {
 
 // ProcessSignalParams are the fields sent to ProcessSignal for a trade intent.
 type ProcessSignalParams struct {
-	TokenID     string
-	Side        order.Side
-	Price       string
-	NegRisk     bool
-	Expiration  int64
-	TimestampMs int64
+	TokenID         string
+	Side            order.Side
+	Price           string
+	NegRisk         bool
+	Expiration      int64
+	TimestampMs     int64
+	WinProbability  float64 // model P(win), (0,1]; required
 }
 
 // ProcessSignal risk-checks a trade intent, allocates size, signs, and returns a payload.
@@ -98,13 +99,15 @@ func (c *Client) ProcessSignal(ctx context.Context, p ProcessSignalParams) (*ord
 	if c == nil || c.MM == nil {
 		return nil, fmt.Errorf("money manager client is nil")
 	}
+	winProb := p.WinProbability
 	resp, err := c.MM.ProcessSignal(ctx, &moneymanagerv1.ProcessSignalRequest{
-		TokenId:     strings.TrimSpace(p.TokenID),
-		Side:        SideToProto(p.Side),
-		Price:       strings.TrimSpace(p.Price),
-		NegRisk:     p.NegRisk,
-		Expiration:  p.Expiration,
-		TimestampMs: p.TimestampMs,
+		TokenId:        strings.TrimSpace(p.TokenID),
+		Side:           SideToProto(p.Side),
+		Price:          strings.TrimSpace(p.Price),
+		NegRisk:        p.NegRisk,
+		Expiration:     p.Expiration,
+		TimestampMs:    p.TimestampMs,
+		WinProbability: &winProb,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("process signal: %w", err)

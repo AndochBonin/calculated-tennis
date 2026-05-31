@@ -8,7 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-// StubBalance implements risk.BalanceReader for tests.
+// StubBalance implements pkg/risk.BalanceReader for tests.
 type StubBalance struct {
 	Total *big.Int
 	Err   error

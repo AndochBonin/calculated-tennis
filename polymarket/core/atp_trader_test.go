@@ -364,7 +364,7 @@ func TestATPTraderHandleBranchesAndSignals(t *testing.T) {
 		},
 	})
 
-	// Price event with matching token should emit a trade signal.
+	// Price events no longer emit trade signals (requires model win probability).
 	trader.handleMarket("target-token", "target name", models.PriceEvent{
 		EventType: "price_change",
 		Market:    "0xabc123",
@@ -374,17 +374,8 @@ func TestATPTraderHandleBranchesAndSignals(t *testing.T) {
 	})
 	select {
 	case sig := <-trader.signals:
-		if sig.TokenID != "target-token" {
-			t.Fatalf("signal token_id: got %q want target-token", sig.TokenID)
-		}
-		if sig.Side != models.OrderSideSell {
-			t.Fatalf("signal side: got %q want SELL", sig.Side)
-		}
-		if sig.Price != "0.49" {
-			t.Fatalf("signal price: got %q want 0.49", sig.Price)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for trade signal")
+		t.Fatalf("unexpected trade signal on price tick: %+v", sig)
+	default:
 	}
 
 	trader.handleSports(5428186, "target name", models.SportsEvent{

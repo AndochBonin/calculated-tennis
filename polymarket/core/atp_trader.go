@@ -215,12 +215,6 @@ func (t *ATPTrader) handleMarket(tokenID string, name string, event any) {
 					"price", price,
 				}, AppendVerboseIDs("token_id", tokenID)...)...,
 			)
-			t.emitSignal(TradeSignal{
-				TokenID: tokenID,
-				Side:    side,
-				Price:   price,
-				NegRisk: t.negRisk,
-			})
 		}
 	case models.BookEvent:
 		slog.Debug("book event",

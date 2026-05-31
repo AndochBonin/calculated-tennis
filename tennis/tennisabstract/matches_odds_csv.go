@@ -12,6 +12,7 @@ import (
 )
 
 const (
+	csvColTourneyID   = "tourney_id"
 	csvColTourneyDate = "tourney_date"
 	csvColMatchNum    = "match_num"
 )
@@ -19,6 +20,7 @@ const (
 // MatchWithOdds is one Sackmann ATP match row with joined decimal odds (AvgW/AvgL).
 // Player A is the winner; player B is the loser.
 type MatchWithOdds struct {
+	TourneyID   string
 	Surface     MatchSurface
 	PlayerA     string
 	PlayerB     string
@@ -115,6 +117,7 @@ func matchWithOddsHasRates(m MatchWithOdds, rates PlayerRatesMap) bool {
 
 type matchWithOddsColumns struct {
 	calibrationColumns
+	tourneyID   int
 	tourneyDate int
 	matchNum    int
 	avgW        int
@@ -128,6 +131,7 @@ func matchWithOddsColumnIndices(header []string) (matchWithOddsColumns, error) {
 	}
 	idx := matchWithOddsColumns{
 		calibrationColumns: base,
+		tourneyID:          -1,
 		tourneyDate:        -1,
 		matchNum:           -1,
 		avgW:               -1,
@@ -141,12 +145,16 @@ func matchWithOddsColumnIndices(header []string) (matchWithOddsColumns, error) {
 			}
 		}
 	}
+	set(csvColTourneyID, &idx.tourneyID)
 	set(csvColTourneyDate, &idx.tourneyDate)
 	set(csvColMatchNum, &idx.matchNum)
 	set(oddsColAvgW, &idx.avgW)
 	set(oddsColAvgL, &idx.avgL)
 
 	missing := []string{}
+	if idx.tourneyID < 0 {
+		missing = append(missing, csvColTourneyID)
+	}
 	if idx.tourneyDate < 0 {
 		missing = append(missing, csvColTourneyDate)
 	}
@@ -209,6 +217,7 @@ func parseMatchWithOddsRow(row []string, idx matchWithOddsColumns) (MatchWithOdd
 	avgL := parseOptionalFloat(fieldAt(row, idx.avgL))
 
 	m := MatchWithOdds{
+		TourneyID:   fieldAt(row, idx.tourneyID),
 		Surface:     surface,
 		PlayerA:     playerA,
 		PlayerB:     playerB,

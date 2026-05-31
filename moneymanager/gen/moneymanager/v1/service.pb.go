@@ -212,15 +212,17 @@ func (x *OrderPayload) GetSignatureType() int32 {
 }
 
 type ProcessSignalRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TokenId       string                 `protobuf:"bytes,1,opt,name=token_id,json=tokenId,proto3" json:"token_id,omitempty"`
-	Side          OrderSide              `protobuf:"varint,2,opt,name=side,proto3,enum=moneymanager.v1.OrderSide" json:"side,omitempty"`
-	Price         string                 `protobuf:"bytes,3,opt,name=price,proto3" json:"price,omitempty"`
-	NegRisk       bool                   `protobuf:"varint,4,opt,name=neg_risk,json=negRisk,proto3" json:"neg_risk,omitempty"`
-	Expiration    int64                  `protobuf:"varint,5,opt,name=expiration,proto3" json:"expiration,omitempty"`
-	TimestampMs   int64                  `protobuf:"varint,6,opt,name=timestamp_ms,json=timestampMs,proto3" json:"timestamp_ms,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	TokenId     string                 `protobuf:"bytes,1,opt,name=token_id,json=tokenId,proto3" json:"token_id,omitempty"`
+	Side        OrderSide              `protobuf:"varint,2,opt,name=side,proto3,enum=moneymanager.v1.OrderSide" json:"side,omitempty"`
+	Price       string                 `protobuf:"bytes,3,opt,name=price,proto3" json:"price,omitempty"`
+	NegRisk     bool                   `protobuf:"varint,4,opt,name=neg_risk,json=negRisk,proto3" json:"neg_risk,omitempty"`
+	Expiration  int64                  `protobuf:"varint,5,opt,name=expiration,proto3" json:"expiration,omitempty"`
+	TimestampMs int64                  `protobuf:"varint,6,opt,name=timestamp_ms,json=timestampMs,proto3" json:"timestamp_ms,omitempty"`
+	// Model P(win) for token/side, (0,1]; required for ProcessSignal.
+	WinProbability *float64 `protobuf:"fixed64,7,opt,name=win_probability,json=winProbability,proto3,oneof" json:"win_probability,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ProcessSignalRequest) Reset() {
@@ -291,6 +293,13 @@ func (x *ProcessSignalRequest) GetExpiration() int64 {
 func (x *ProcessSignalRequest) GetTimestampMs() int64 {
 	if x != nil {
 		return x.TimestampMs
+	}
+	return 0
+}
+
+func (x *ProcessSignalRequest) GetWinProbability() float64 {
+	if x != nil && x.WinProbability != nil {
+		return *x.WinProbability
 	}
 	return 0
 }
@@ -512,7 +521,7 @@ const file_moneymanager_v1_service_proto_rawDesc = "" +
 	" \x01(\tR\abuilder\x12\x1c\n" +
 	"\tsignature\x18\v \x01(\tR\tsignature\x12\x12\n" +
 	"\x04salt\x18\f \x01(\x03R\x04salt\x12%\n" +
-	"\x0esignature_type\x18\r \x01(\x05R\rsignatureType\"\xd5\x01\n" +
+	"\x0esignature_type\x18\r \x01(\x05R\rsignatureType\"\x97\x02\n" +
 	"\x14ProcessSignalRequest\x12\x19\n" +
 	"\btoken_id\x18\x01 \x01(\tR\atokenId\x12.\n" +
 	"\x04side\x18\x02 \x01(\x0e2\x1a.moneymanager.v1.OrderSideR\x04side\x12\x14\n" +
@@ -521,7 +530,9 @@ const file_moneymanager_v1_service_proto_rawDesc = "" +
 	"\n" +
 	"expiration\x18\x05 \x01(\x03R\n" +
 	"expiration\x12!\n" +
-	"\ftimestamp_ms\x18\x06 \x01(\x03R\vtimestampMs\"L\n" +
+	"\ftimestamp_ms\x18\x06 \x01(\x03R\vtimestampMs\x12,\n" +
+	"\x0fwin_probability\x18\a \x01(\x01H\x00R\x0ewinProbability\x88\x01\x01B\x12\n" +
+	"\x10_win_probability\"L\n" +
 	"\x15ProcessSignalResponse\x123\n" +
 	"\x05order\x18\x01 \x01(\v2\x1d.moneymanager.v1.OrderPayloadR\x05order\"\xb3\x02\n" +
 	"\x10SignOrderRequest\x12\x19\n" +
@@ -590,6 +601,7 @@ func file_moneymanager_v1_service_proto_init() {
 	if File_moneymanager_v1_service_proto != nil {
 		return
 	}
+	file_moneymanager_v1_service_proto_msgTypes[1].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

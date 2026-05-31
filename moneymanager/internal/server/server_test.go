@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/AndochBonin/E3/moneymanager/internal/order"
-	"github.com/AndochBonin/E3/moneymanager/internal/risk"
+	"github.com/AndochBonin/E3/moneymanager/pkg/risk"
 	"github.com/AndochBonin/E3/moneymanager/internal/signer"
 	"github.com/AndochBonin/E3/moneymanager/internal/testutil"
 	moneymanagerv1 "github.com/AndochBonin/E3/moneymanager/gen/moneymanager/v1"
@@ -70,14 +70,24 @@ func TestSignOrder_missingSide(t *testing.T) {
 	}
 }
 
+func processSignalReq(t *testing.T, winProb *float64, side moneymanagerv1.OrderSide, price string) *moneymanagerv1.ProcessSignalRequest {
+	t.Helper()
+	req := &moneymanagerv1.ProcessSignalRequest{
+		TokenId:     "12345",
+		Side:        side,
+		Price:       price,
+		TimestampMs: 1_700_000_123,
+	}
+	if winProb != nil {
+		req.WinProbability = winProb
+	}
+	return req
+}
+
 func TestProcessSignal_success(t *testing.T) {
 	svc := testServer(t)
-	resp, err := svc.ProcessSignal(context.Background(), &moneymanagerv1.ProcessSignalRequest{
-		TokenId:     "12345",
-		Side:        moneymanagerv1.OrderSide_ORDER_SIDE_BUY,
-		Price:       "0.50",
-		TimestampMs: 1_700_000_123,
-	})
+	winProb := 0.55
+	resp, err := svc.ProcessSignal(context.Background(), processSignalReq(t, &winProb, moneymanagerv1.OrderSide_ORDER_SIDE_BUY, "0.50"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,12 +103,34 @@ func TestProcessSignal_success(t *testing.T) {
 
 func TestProcessSignal_sellRejected(t *testing.T) {
 	svc := testServer(t)
-	_, err := svc.ProcessSignal(context.Background(), &moneymanagerv1.ProcessSignalRequest{
-		TokenId:     "12345",
-		Side:        moneymanagerv1.OrderSide_ORDER_SIDE_SELL,
-		Price:       "0.50",
-		TimestampMs: 1_700_000_123,
-	})
+	winProb := 0.55
+	_, err := svc.ProcessSignal(context.Background(), processSignalReq(t, &winProb, moneymanagerv1.OrderSide_ORDER_SIDE_SELL, "0.50"))
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("code: got %v want FailedPrecondition", status.Code(err))
+	}
+}
+
+func TestProcessSignal_missingWinProbability(t *testing.T) {
+	svc := testServer(t)
+	_, err := svc.ProcessSignal(context.Background(), processSignalReq(t, nil, moneymanagerv1.OrderSide_ORDER_SIDE_BUY, "0.50"))
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code: got %v want InvalidArgument", status.Code(err))
+	}
+}
+
+func TestProcessSignal_invalidWinProbability(t *testing.T) {
+	svc := testServer(t)
+	winProb := 0.0
+	_, err := svc.ProcessSignal(context.Background(), processSignalReq(t, &winProb, moneymanagerv1.OrderSide_ORDER_SIDE_BUY, "0.50"))
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code: got %v want InvalidArgument", status.Code(err))
+	}
+}
+
+func TestProcessSignal_nonPositiveEV(t *testing.T) {
+	svc := testServer(t)
+	winProb := 0.4
+	_, err := svc.ProcessSignal(context.Background(), processSignalReq(t, &winProb, moneymanagerv1.OrderSide_ORDER_SIDE_BUY, "0.50"))
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("code: got %v want FailedPrecondition", status.Code(err))
 	}
