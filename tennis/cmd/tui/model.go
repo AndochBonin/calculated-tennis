@@ -67,6 +67,9 @@ type model struct {
 	step  step
 	theme Theme
 
+	width  int // terminal size, from tea.WindowSizeMsg; centers the view
+	height int
+
 	ti      textinput.Model
 	spinner spinner.Model
 	cursor  int // selection index for choice steps
@@ -119,6 +122,10 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if ws, ok := msg.(tea.WindowSizeMsg); ok {
+		m.width, m.height = ws.Width, ws.Height
+		return m, nil
+	}
 	switch m.state {
 	case stateForm:
 		return m.updateForm(msg)

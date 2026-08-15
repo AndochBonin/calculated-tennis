@@ -14,6 +14,14 @@ const winBarWidth = 30
 var warnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true)
 
 func (m model) View() string {
+	content := m.stateView()
+	if m.width == 0 || m.height == 0 {
+		return content // pre-size / non-tty fallback
+	}
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
+}
+
+func (m model) stateView() string {
 	switch m.state {
 	case stateLoading:
 		return m.viewLoading()
