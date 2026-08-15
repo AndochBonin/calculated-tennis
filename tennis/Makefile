@@ -1,6 +1,6 @@
 SHELL := /bin/zsh
 
-.PHONY: get-stats fetch-rates fetch-career fill-rates-dr calibrate-alpha calibrate-form backtest sim
+.PHONY: get-stats fetch-rates fetch-career fill-rates-dr calibrate-alpha calibrate-form backtest sim tui
 
 get-stats:
 	go run ./cmd/getstats $(if $(PLAYER),-player="$(PLAYER)",) \
@@ -46,3 +46,6 @@ sim:
 		$(if $(SIMS),-sims=$(SIMS),) \
 		$(if $(SCORE),-score="$(SCORE)",) \
 		$(if $(FIRST_SERVER),-first-server=$(FIRST_SERVER),)
+
+tui:
+	go run ./cmd/tui
