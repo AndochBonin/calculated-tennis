@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/AndochBonin/calculated-tennis/tennis/tennis"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -49,23 +50,12 @@ func (m model) viewForm() string {
 	var b strings.Builder
 	b.WriteString(m.header())
 	b.WriteString("\n\n")
-	b.WriteString(t.accentStyle().Render(fmt.Sprintf("Step %d/%d", int(m.step)+1, int(stepDone))))
+	b.WriteString(t.accentStyle().Render(fmt.Sprintf("Step %d/%d", int(m.page)+1, int(pageDone))))
 	b.WriteString("  ")
-	b.WriteString(t.valueStyle().Render(stepTitle(m.step)))
+	b.WriteString(t.valueStyle().Render(pageTitle(m.page)))
 	b.WriteString("\n\n")
 
-	if m.isChoiceStep() {
-		for i, label := range m.choiceLabels() {
-			if i == m.cursor {
-				b.WriteString(t.accentStyle().Render("▸ ") + t.valueStyle().Render(label) + "\n")
-			} else {
-				b.WriteString("  " + t.labelStyle().Render(label) + "\n")
-			}
-		}
-	} else {
-		b.WriteString(m.ti.View())
-		b.WriteString("\n")
-	}
+	b.WriteString(m.pageBody())
 
 	if m.errMsg != "" {
 		b.WriteString("\n" + warnStyle.Render("⚠ "+m.errMsg) + "\n")
@@ -75,11 +65,88 @@ func (m model) viewForm() string {
 	return m.panel(b.String())
 }
 
-func (m model) formHelp() string {
-	if m.isChoiceStep() {
-		return "↑/↓ move • enter select • esc back • ctrl+c quit"
+// pageBody renders the fields for the current page.
+func (m model) pageBody() string {
+	switch m.page {
+	case pageSurface:
+		return m.viewSurfacePage()
+	case pagePlayers:
+		var b strings.Builder
+		b.WriteString(m.inputRow("Player A", m.inPlayerA, m.focus == 0))
+		b.WriteString(m.inputRow("Player B", m.inPlayerB, m.focus == 1))
+		b.WriteString(m.selectorRow("Format", formatLabels(), m.formatIdx, m.focus == 2))
+		return b.String()
+	case pageMetrics:
+		return m.inputRow("Simulations", m.inSims, m.focus == 0)
 	}
-	return "enter continue • esc back • ctrl+c quit"
+	return ""
+}
+
+func (m model) viewSurfacePage() string {
+	t := m.theme
+	var b strings.Builder
+	for i, label := range surfaceLabels {
+		if i == m.surfaceIdx {
+			b.WriteString(t.accentStyle().Render("▸ ") + t.valueStyle().Render(label) + "\n")
+		} else {
+			b.WriteString("  " + t.labelStyle().Render(label) + "\n")
+		}
+	}
+	return b.String()
+}
+
+func formatLabels() []string {
+	fc := formatChoices()
+	out := make([]string, 0, len(fc))
+	for _, c := range fc {
+		out = append(out, c.label)
+	}
+	return out
+}
+
+// inputRow renders a labeled text input; the focused row gets an accent marker.
+func (m model) inputRow(label string, ti textinput.Model, focused bool) string {
+	t := m.theme
+	marker := "  "
+	labelStyle := t.labelStyle()
+	if focused {
+		marker = t.accentStyle().Render("▸ ")
+		labelStyle = t.accentStyle()
+	}
+	return marker + labelStyle.Render(label) + "\n  " + ti.View() + "\n\n"
+}
+
+// selectorRow renders a labeled ◄ value ► selector; accent when focused.
+func (m model) selectorRow(label string, opts []string, idx int, focused bool) string {
+	t := m.theme
+	if idx < 0 || idx >= len(opts) {
+		idx = 0
+	}
+	val := ""
+	if len(opts) > 0 {
+		val = opts[idx]
+	}
+	marker := "  "
+	labelStyle := t.labelStyle()
+	valStyle := t.valueStyle()
+	if focused {
+		marker = t.accentStyle().Render("▸ ")
+		labelStyle = t.accentStyle()
+		val = "◄ " + val + " ►"
+		valStyle = t.accentStyle()
+	}
+	return marker + labelStyle.Render(label) + "\n  " + valStyle.Render(val) + "\n\n"
+}
+
+func (m model) formHelp() string {
+	switch m.page {
+	case pageSurface:
+		return "↑/↓ move • enter select • ctrl+c quit"
+	case pagePlayers:
+		return "tab move field • → accept name • ←/→ format • enter continue • esc back • ctrl+c quit"
+	default: // metrics
+		return "enter run • esc back • ctrl+c quit"
+	}
 }
 
 func (m model) viewLoading() string {
@@ -108,19 +175,7 @@ func (m model) viewResults() string {
 	b.WriteString(m.kv("Player B", fmt.Sprintf("%s  (hold %s, break %s)", m.playerB, pct(m.rates[1].HoldPct), pct(m.rates[1].BreakPct))))
 	b.WriteString(m.kv("Format", m.formatLabel))
 	b.WriteString(m.kv("Surface", string(m.surface)))
-	if m.score != "" {
-		b.WriteString(m.kv("Score", m.score))
-	}
-	switch {
-	case m.useCoinToss:
-		b.WriteString(m.kv("First server", "coin toss per simulation"))
-	case m.firstServerChosen:
-		server := m.playerA
-		if m.firstServer == tennis.B {
-			server = m.playerB
-		}
-		b.WriteString(m.kv("First server", server))
-	}
+	b.WriteString(m.kv("First server", "coin toss per simulation"))
 	b.WriteString(m.kv("Alpha", strconv.FormatFloat(m.alpha, 'g', -1, 64)))
 	b.WriteString(m.kv("Sims", strconv.Itoa(m.sims)))
 

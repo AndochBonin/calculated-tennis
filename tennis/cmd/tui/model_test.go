@@ -15,10 +15,10 @@ func send(t *testing.T, m model, msg tea.Msg) (model, tea.Cmd) {
 	return next.(model), cmd
 }
 
-func typeText(t *testing.T, m model, s string) model {
+// typeInto types text into the focused field without submitting.
+func typeInto(t *testing.T, m model, s string) model {
 	t.Helper()
 	m, _ = send(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)})
-	m, _ = send(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	return m
 }
 
@@ -28,40 +28,65 @@ func enter(t *testing.T, m model) model {
 	return m
 }
 
+func tab(t *testing.T, m model) model {
+	t.Helper()
+	m, _ = send(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	return m
+}
+
 func down(t *testing.T, m model) model {
 	t.Helper()
 	m, _ = send(t, m, tea.KeyMsg{Type: tea.KeyDown})
 	return m
 }
 
-// TestFormToResults walks the whole flow: fill the form, pick Grass (which must
-// swap the theme), then push it through the rates + simulate pipeline and assert
-// the results state is coherent.
+// TestFormToResults walks the whole page flow: pick Grass on the surface page
+// (which must swap the theme), fill players+format, alpha+sims, skip the score
+// (coin toss), then push it through the rates + simulate pipeline and assert the
+// results state is coherent.
 func TestFormToResults(t *testing.T) {
 	m := initialModel(context.Background(), nil)
 
-	m = typeText(t, m, "Jannik Sinner")             // player A
-	m = typeText(t, m, "Carlos Alcaraz")            // player B
-	m = enter(t, m)                                 // format: default ATP
-	m = down(t, m)                                  // surface: Hard -> Clay
-	m = down(t, m)                                  //          Clay -> Grass
-	if got := m.choiceLabels()[m.cursor]; got != "Grass" {
+	// Page 1: surface — Hard -> Clay -> Grass.
+	m = down(t, m)
+	m = down(t, m)
+	if got := surfaceLabels[m.surfaceIdx]; got != "Grass" {
 		t.Fatalf("surface cursor on %q, want Grass", got)
 	}
-	m = enter(t, m) // select Grass
+	m = enter(t, m) // select Grass, advance
 	if m.theme.Name != "Grass" {
 		t.Fatalf("theme = %q after selecting Grass, want Grass", m.theme.Name)
 	}
-	m = typeText(t, m, "2.5")  // alpha
-	m = typeText(t, m, "1000") // sims
-	m = enter(t, m)            // score: skip (optional)
-	m = enter(t, m)            // first server: default coin toss (no score)
+	if m.page != pagePlayers {
+		t.Fatalf("page = %d after surface, want pagePlayers (%d)", m.page, pagePlayers)
+	}
 
+	// Page 2: players + format (default Best of 3).
+	m = typeInto(t, m, "Jannik Sinner")
+	m = tab(t, m)
+	m = typeInto(t, m, "Carlos Alcaraz")
+	m = enter(t, m)
+	if m.playerA != "Jannik Sinner" || m.playerB != "Carlos Alcaraz" {
+		t.Fatalf("players = %q / %q", m.playerA, m.playerB)
+	}
+	if m.page != pageMetrics {
+		t.Fatalf("page = %d after players, want pageMetrics (%d)", m.page, pageMetrics)
+	}
+
+	// Page 3: number of simulations (alpha is surface-derived, not entered).
+	m = typeInto(t, m, "1000")
+	m = enter(t, m) // -> startSim
+
+	if m.sims != 1000 {
+		t.Fatalf("sims = %d, want 1000", m.sims)
+	}
 	if m.state != stateLoading {
 		t.Fatalf("state = %d after form, want stateLoading (%d)", m.state, stateLoading)
 	}
-	if !m.useCoinToss {
-		t.Fatal("expected coin toss when score is empty and default chosen")
+	// Alpha comes from tennisabstract.AlphaFromEnv; with no env set it is the
+	// code default.
+	if m.alpha != 1.0 {
+		t.Fatalf("alpha = %v, want surface-derived default 1.0", m.alpha)
 	}
 
 	// Inject fetched rates, then run the real (pure) simulate command it returns.
@@ -86,22 +111,29 @@ func TestFormToResults(t *testing.T) {
 	}
 }
 
-// TestScoreRequiresFirstServer confirms that entering a score removes the coin-toss
-// option, forcing an explicit first-server pick.
-func TestScoreRequiresFirstServer(t *testing.T) {
+// TestPlayerNamesAutocomplete verifies the embedded supported-names list parses
+// and populates type-ahead suggestions on both player-name inputs.
+func TestPlayerNamesAutocomplete(t *testing.T) {
 	m := initialModel(context.Background(), nil)
-	m = typeText(t, m, "A")
-	m = typeText(t, m, "B")
-	m = enter(t, m)            // format
-	m = enter(t, m)            // surface: Hard
-	m = typeText(t, m, "2.5")  // alpha
-	m = typeText(t, m, "1000") // sims
-	m = typeText(t, m, "7-5 4-6 2-3")
 
-	if !m.isChoiceStep() || m.step != stepFirstServer {
-		t.Fatalf("expected first-server choice step, got step %d", m.step)
+	msg := loadPlayerNamesCmd()()
+	names, ok := msg.(playerNamesMsg)
+	if !ok {
+		t.Fatalf("loadPlayerNamesCmd produced %T, want playerNamesMsg", msg)
 	}
-	if labels := m.choiceLabels(); len(labels) != 2 {
-		t.Fatalf("first-server options = %v, want 2 (no coin toss with a score)", labels)
+	if len(names.names) == 0 {
+		t.Fatal("expected embedded player names, got none")
+	}
+
+	m, _ = send(t, m, names)
+	if !m.namesLoaded {
+		t.Fatal("namesLoaded should be true after playerNamesMsg")
+	}
+	if got := len(m.inPlayerA.AvailableSuggestions()); got != len(names.names) {
+		t.Fatalf("player A suggestions = %d, want %d", got, len(names.names))
+	}
+	if len(m.inPlayerB.AvailableSuggestions()) == 0 {
+		t.Fatal("player B suggestions were not set")
 	}
 }
+

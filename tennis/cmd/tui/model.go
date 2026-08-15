@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 
 	"github.com/AndochBonin/calculated-tennis/tennis/tennis"
 	"github.com/AndochBonin/calculated-tennis/tennis/tennisabstract"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -24,20 +24,15 @@ const (
 	stateError
 )
 
-// step enumerates the form fields in order. stepDone marks completion and
-// doubles as the total input-step count for the progress indicator.
-type step int
+// page enumerates the grouped form screens in order. pageDone marks completion
+// and doubles as the total page count for the progress indicator.
+type page int
 
 const (
-	stepPlayerA step = iota
-	stepPlayerB
-	stepFormat
-	stepSurface
-	stepAlpha
-	stepSims
-	stepScore
-	stepFirstServer
-	stepDone
+	pageSurface page = iota // Hard / Clay / Grass
+	pagePlayers             // player A + player B + format
+	pageMetrics             // number of simulations
+	pageDone
 )
 
 type labeledFormat struct {
@@ -47,9 +42,8 @@ type labeledFormat struct {
 
 func formatChoices() []labeledFormat {
 	return []labeledFormat{
-		{"ATP best-of-3", tennis.DefaultFormat()},
-		{"Grand Slam men best-of-5", tennis.GrandSlamMenFormat()},
-		{"Grand Slam women best-of-3", tennis.GrandSlamWomenFormat()},
+		{"Best of 3", tennis.DefaultFormat()},
+		{"Best of 5 (grand slam)", tennis.GrandSlamMenFormat()},
 	}
 }
 
@@ -59,33 +53,41 @@ var surfaceChoices = []tennisabstract.MatchSurface{
 	tennisabstract.SurfaceGrass,
 }
 
+var surfaceLabels = []string{"Hard", "Clay", "Grass"}
+
 type model struct {
 	client *tennisabstract.Client
 	ctx    context.Context
 
 	state state
-	step  step
+	page  page
+	focus int // focused field within the current page
 	theme Theme
 
 	width  int // terminal size, from tea.WindowSizeMsg; centers the view
 	height int
 
-	ti      textinput.Model
-	spinner spinner.Model
-	cursor  int // selection index for choice steps
+	// text inputs, one per text field, persistent across back/forward.
+	inPlayerA textinput.Model
+	inPlayerB textinput.Model
+	inSims    textinput.Model
 
-	// collected inputs
-	playerA           string
-	playerB           string
-	format            tennis.MatchFormat
-	formatLabel       string
-	surface           tennisabstract.MatchSurface
-	alpha             float64
-	sims              int
-	score             string
-	firstServer       tennis.Player
-	firstServerChosen bool
-	useCoinToss       bool
+	spinner spinner.Model
+
+	// selector indices
+	surfaceIdx int
+	formatIdx  int
+
+	namesLoaded bool // supported player names fetched into the name inputs
+
+	// collected/resolved inputs (populated on each page's submit)
+	playerA     string
+	playerB     string
+	format      tennis.MatchFormat
+	formatLabel string
+	surface     tennisabstract.MatchSurface
+	alpha       float64 // surface-derived, from tennisabstract.AlphaFromEnv
+	sims        int
 
 	// results
 	rates  [2]tennis.PlayerRates
@@ -95,25 +97,46 @@ type model struct {
 	errMsg string // inline validation message on the form
 }
 
-func initialModel(ctx context.Context, client *tennisabstract.Client) model {
+func newInput(placeholder string) textinput.Model {
 	ti := textinput.New()
 	ti.Prompt = "> "
 	ti.CharLimit = 120
+	ti.Placeholder = placeholder
+	return ti
+}
 
+// newNameInput is a text input with type-ahead suggestions enabled, for the
+// player-name fields. Suggestions are populated once the supported-names list
+// loads (see loadPlayerNamesCmd). AcceptSuggestion is rebound to → (right)
+// because the default (tab) is consumed by our field navigation; → accepts the
+// ghost completion when at end-of-input and otherwise moves the cursor. Cycle
+// suggestions with ctrl+n / ctrl+p.
+func newNameInput(placeholder string) textinput.Model {
+	ti := newInput(placeholder)
+	ti.ShowSuggestions = true
+	ti.KeyMap.AcceptSuggestion = key.NewBinding(key.WithKeys("right"))
+	return ti
+}
+
+func initialModel(ctx context.Context, client *tennisabstract.Client) model {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(hardTheme.Accent)
 
 	m := model{
-		client: client,
-		ctx:    ctx,
-		state:  stateForm,
-		step:   stepPlayerA,
-		theme:  hardTheme,
-		ti:     ti,
-		spinner: sp,
+		client:     client,
+		ctx:        ctx,
+		state:      stateForm,
+		page:       pageSurface,
+		theme:      hardTheme,
+		inPlayerA:  newNameInput("e.g. Jannik Sinner"),
+		inPlayerB:  newNameInput("e.g. Carlos Alcaraz"),
+		inSims:     newInput("e.g. 10000"),
+		spinner:    sp,
+		surfaceIdx: 0,
+		formatIdx:  0,
 	}
-	m.configureStep()
+	m.syncFocus()
 	return m
 }
 
@@ -136,220 +159,210 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// --- form ---
+// --- form navigation helpers ---
 
-func (m *model) isChoiceStep() bool {
-	return m.step == stepFormat || m.step == stepSurface || m.step == stepFirstServer
+// pageInputs returns the focusable text inputs for the current page, in order.
+// Selector fields (format) are not text inputs and are handled separately; nil
+// entries mark a selector's focus slot.
+func (m *model) pageInputs() []*textinput.Model {
+	switch m.page {
+	case pagePlayers:
+		return []*textinput.Model{&m.inPlayerA, &m.inPlayerB, nil} // nil = format selector
+	case pageMetrics:
+		return []*textinput.Model{&m.inSims}
+	}
+	return nil // surface page is a single vertical list
 }
 
-func (m model) choiceLabels() []string {
-	switch m.step {
-	case stepFormat:
-		out := make([]string, 0, 3)
-		for _, c := range formatChoices() {
-			out = append(out, c.label)
-		}
-		return out
-	case stepSurface:
-		return []string{"Hard", "Clay", "Grass"}
-	case stepFirstServer:
-		labels := []string{m.playerA, m.playerB}
-		if m.score == "" {
-			labels = append(labels, "Coin toss (per simulation)")
-		}
-		return labels
+// focusCount is the number of focusable fields on the current page.
+func (m *model) focusCount() int {
+	switch m.page {
+	case pagePlayers:
+		return 3
+	case pageMetrics:
+		return 1
+	default: // surface
+		return 1
 	}
-	return nil
 }
 
-// currentChoiceIndex restores the prior selection when (re)entering a choice step.
-func (m model) currentChoiceIndex() int {
-	switch m.step {
-	case stepFormat:
-		for i, c := range formatChoices() {
-			if c.label == m.formatLabel {
-				return i
-			}
-		}
-	case stepSurface:
-		for i, s := range surfaceChoices {
-			if s == m.surface {
-				return i
-			}
-		}
-	case stepFirstServer:
-		if m.firstServerChosen {
-			if m.firstServer == tennis.B {
-				return 1
-			}
-			return 0
-		}
-		return 2 // coin toss (clamped away when a score is present)
+// focusedIsSelector reports whether the focused field is a selector (not a text
+// input) on the current page.
+func (m *model) focusedIsSelector() bool {
+	if m.page == pagePlayers {
+		return m.focus == 2 // format
 	}
-	return 0
+	return false
 }
 
-// configureStep prepares the widget/cursor for the current step, prefilling any
-// previously entered value.
-func (m *model) configureStep() {
-	m.errMsg = ""
-	if m.isChoiceStep() {
-		idx := m.currentChoiceIndex()
-		if n := len(m.choiceLabels()); idx >= n {
-			idx = n - 1
-		}
-		if idx < 0 {
-			idx = 0
-		}
-		m.cursor = idx
-		return
+// syncFocus focuses the active text input and blurs the rest.
+func (m *model) syncFocus() {
+	all := []*textinput.Model{&m.inPlayerA, &m.inPlayerB, &m.inSims}
+	for _, ti := range all {
+		ti.Blur()
 	}
-	m.ti.Reset()
-	m.ti.Placeholder = stepPlaceholder(m.step)
-	m.ti.SetValue(m.storedText(m.step))
-	m.ti.CursorEnd()
-	m.ti.Focus()
+	inputs := m.pageInputs()
+	if m.focus >= 0 && m.focus < len(inputs) && inputs[m.focus] != nil {
+		inputs[m.focus].Focus()
+	}
 }
 
 func (m model) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if names, ok := msg.(playerNamesMsg); ok {
+		m.namesLoaded = true
+		m.inPlayerA.SetSuggestions(names.names)
+		m.inPlayerB.SetSuggestions(names.names)
+		return m, nil
+	}
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
-		var cmd tea.Cmd
-		m.ti, cmd = m.ti.Update(msg)
-		return m, cmd
+		return m.forwardToFocused(msg)
 	}
 	if key.Type == tea.KeyCtrlC {
 		return m, tea.Quit
 	}
-	if m.isChoiceStep() {
-		return m.updateChoice(key)
-	}
 	switch key.Type {
 	case tea.KeyEnter:
-		return m.submitText()
+		return m.submitPage()
 	case tea.KeyEsc:
-		return m.goBack()
+		return m.prevPage()
 	}
-	var cmd tea.Cmd
-	m.ti, cmd = m.ti.Update(key)
-	return m, cmd
+
+	if m.page == pageSurface {
+		return m.updateSurface(key)
+	}
+
+	// Multi-field pages: tab/shift+tab and up/down move focus between fields.
+	switch key.String() {
+	case "tab", "down":
+		m.focus = (m.focus + 1) % m.focusCount()
+		m.errMsg = ""
+		m.syncFocus()
+		return m, textinput.Blink
+	case "shift+tab", "up":
+		m.focus = (m.focus - 1 + m.focusCount()) % m.focusCount()
+		m.errMsg = ""
+		m.syncFocus()
+		return m, textinput.Blink
+	case "left", "right":
+		if m.focusedIsSelector() {
+			return m.changeSelector(key.String() == "right"), nil
+		}
+	}
+	return m.forwardToFocused(key)
 }
 
-func (m model) updateChoice(key tea.KeyMsg) (tea.Model, tea.Cmd) {
-	n := len(m.choiceLabels())
+func (m model) updateSurface(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key.String() {
 	case "up", "k":
-		if m.cursor > 0 {
-			m.cursor--
+		if m.surfaceIdx > 0 {
+			m.surfaceIdx--
 		}
 	case "down", "j":
-		if m.cursor < n-1 {
-			m.cursor++
+		if m.surfaceIdx < len(surfaceChoices)-1 {
+			m.surfaceIdx++
 		}
-	case "enter":
-		return m.selectChoice()
-	case "esc":
-		return m.goBack()
 	}
+	// Live-recolor the whole UI to the highlighted surface.
+	m.surface = surfaceChoices[m.surfaceIdx]
+	m.theme = themeForSurface(m.surface)
+	m.spinner.Style = lipgloss.NewStyle().Foreground(m.theme.Accent)
 	return m, nil
 }
 
-func (m model) selectChoice() (tea.Model, tea.Cmd) {
-	switch m.step {
-	case stepFormat:
-		fc := formatChoices()[m.cursor]
-		m.format, m.formatLabel = fc.format, fc.label
-	case stepSurface:
-		m.surface = surfaceChoices[m.cursor]
-		m.theme = themeForSurface(m.surface)
-		m.spinner.Style = lipgloss.NewStyle().Foreground(m.theme.Accent)
-	case stepFirstServer:
-		switch m.cursor {
-		case 0:
-			m.firstServer, m.firstServerChosen, m.useCoinToss = tennis.A, true, false
-		case 1:
-			m.firstServer, m.firstServerChosen, m.useCoinToss = tennis.B, true, false
-		default:
-			m.firstServerChosen, m.useCoinToss = false, true
-		}
+// changeSelector advances (or retreats) the focused selector's index.
+func (m model) changeSelector(forward bool) model {
+	if m.page != pagePlayers {
+		return m
 	}
-	return m.advance()
+	n := len(formatChoices())
+	if forward {
+		m.formatIdx = (m.formatIdx + 1) % n
+	} else {
+		m.formatIdx = (m.formatIdx - 1 + n) % n
+	}
+	return m
 }
 
-func (m model) submitText() (tea.Model, tea.Cmd) {
-	val := strings.TrimSpace(m.ti.Value())
-	switch m.step {
-	case stepPlayerA:
-		if val == "" {
+// forwardToFocused passes a message to the focused text input (if any).
+func (m model) forwardToFocused(msg tea.Msg) (tea.Model, tea.Cmd) {
+	inputs := m.pageInputs()
+	if m.focus < 0 || m.focus >= len(inputs) || inputs[m.focus] == nil {
+		return m, nil
+	}
+	var cmd tea.Cmd
+	*inputs[m.focus], cmd = inputs[m.focus].Update(msg)
+	return m, cmd
+}
+
+func (m model) submitPage() (tea.Model, tea.Cmd) {
+	switch m.page {
+	case pageSurface:
+		m.surface = surfaceChoices[m.surfaceIdx]
+		m.theme = themeForSurface(m.surface)
+		m.spinner.Style = lipgloss.NewStyle().Foreground(m.theme.Accent)
+		// Fetch supported names just before the player-selection page.
+		next, cmd := m.nextPage()
+		if !m.namesLoaded {
+			return next, tea.Batch(cmd, loadPlayerNamesCmd())
+		}
+		return next, cmd
+	case pagePlayers:
+		if strings.TrimSpace(m.inPlayerA.Value()) == "" || strings.TrimSpace(m.inPlayerB.Value()) == "" {
 			m.errMsg = "player name is required"
 			return m, nil
 		}
-		m.playerA = val
-	case stepPlayerB:
-		if val == "" {
-			m.errMsg = "player name is required"
-			return m, nil
-		}
-		m.playerB = val
-	case stepAlpha:
-		f, err := strconv.ParseFloat(val, 64)
-		if err != nil || f <= 0 || math.IsNaN(f) || math.IsInf(f, 0) {
-			m.errMsg = "alpha must be a number > 0"
-			return m, nil
-		}
-		m.alpha = f
-	case stepSims:
-		n, err := strconv.Atoi(val)
+		m.playerA = strings.TrimSpace(m.inPlayerA.Value())
+		m.playerB = strings.TrimSpace(m.inPlayerB.Value())
+		fc := formatChoices()[m.formatIdx]
+		m.format, m.formatLabel = fc.format, fc.label
+	case pageMetrics:
+		n, err := strconv.Atoi(strings.TrimSpace(m.inSims.Value()))
 		if err != nil || n <= 0 {
 			m.errMsg = "sims must be a whole number > 0"
 			return m, nil
 		}
 		m.sims = n
-	case stepScore:
-		m.score = val // optional; validated when the match is built
-	}
-	return m.advance()
-}
-
-func (m model) advance() (tea.Model, tea.Cmd) {
-	m.step++
-	if m.step == stepDone {
 		return m.startSim()
 	}
-	m.configureStep()
-	if m.isChoiceStep() {
-		return m, nil
-	}
+	return m.nextPage()
+}
+
+func (m model) nextPage() (tea.Model, tea.Cmd) {
+	m.page++
+	m.focus = 0
+	m.errMsg = ""
+	m.syncFocus()
 	return m, textinput.Blink
 }
 
-func (m model) goBack() (tea.Model, tea.Cmd) {
-	if m.step == stepPlayerA {
+func (m model) prevPage() (tea.Model, tea.Cmd) {
+	if m.page == pageSurface {
 		return m, nil
 	}
-	m.step--
-	m.configureStep()
-	if m.isChoiceStep() {
-		return m, nil
-	}
+	m.page--
+	m.focus = 0
+	m.errMsg = ""
+	m.syncFocus()
 	return m, textinput.Blink
 }
 
 func (m model) startSim() (tea.Model, tea.Cmd) {
+	// Alpha is surface-derived (env override or code default), not user input.
+	m.alpha = tennisabstract.AlphaFromEnv(m.surface)
 	m.state = stateLoading
 	names := [2]string{m.playerA, m.playerB}
 	return m, tea.Batch(m.spinner.Tick, fetchRatesCmd(m.ctx, m.client, names, m.surface))
 }
 
 func (m model) simInputs() simInputs {
+	// Matches always simulate fresh from 0-0 with a coin-toss serve each run;
+	// score and explicit first server are no longer collected in the TUI.
 	return simInputs{
-		format:            m.format,
-		surface:           m.surface,
-		alpha:             m.alpha,
-		sims:              m.sims,
-		score:             m.score,
-		firstServer:       m.firstServer,
-		firstServerChosen: m.firstServerChosen,
+		format:  m.format,
+		surface: m.surface,
+		alpha:   m.alpha,
+		sims:    m.sims,
 	}
 }
 
@@ -398,67 +411,25 @@ func (m model) updateDone(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) restart() (tea.Model, tea.Cmd) {
 	m.state = stateForm
-	m.step = stepPlayerA
+	m.page = pageSurface
+	m.focus = 0
 	m.err = nil
+	m.errMsg = ""
 	m.result = tennis.SimulationResult{}
-	m.configureStep()
+	m.syncFocus()
 	return m, textinput.Blink
 }
 
-// --- step metadata ---
+// --- metadata ---
 
-func (m model) storedText(s step) string {
-	switch s {
-	case stepPlayerA:
-		return m.playerA
-	case stepPlayerB:
-		return m.playerB
-	case stepAlpha:
-		if m.alpha > 0 {
-			return strconv.FormatFloat(m.alpha, 'g', -1, 64)
-		}
-	case stepSims:
-		if m.sims > 0 {
-			return strconv.Itoa(m.sims)
-		}
-	case stepScore:
-		return m.score
-	}
-	return ""
-}
-
-func stepPlaceholder(s step) string {
-	switch s {
-	case stepPlayerA, stepPlayerB:
-		return "e.g. Jannik Sinner"
-	case stepAlpha:
-		return "e.g. 2.5"
-	case stepSims:
-		return "e.g. 10000"
-	case stepScore:
-		return "e.g. 7-5 4-6 2-3  (optional — Enter to skip)"
-	}
-	return ""
-}
-
-func stepTitle(s step) string {
-	switch s {
-	case stepPlayerA:
-		return "Player A name"
-	case stepPlayerB:
-		return "Player B name"
-	case stepFormat:
-		return "Match format"
-	case stepSurface:
+func pageTitle(p page) string {
+	switch p {
+	case pageSurface:
 		return "Court surface"
-	case stepAlpha:
-		return "Alpha (sensitivity, > 0)"
-	case stepSims:
+	case pagePlayers:
+		return "Players & format"
+	case pageMetrics:
 		return "Number of simulations"
-	case stepScore:
-		return "Match score so far (optional)"
-	case stepFirstServer:
-		return "First server"
 	}
 	return ""
 }
