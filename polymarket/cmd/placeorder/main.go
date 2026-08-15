@@ -35,11 +35,11 @@ import (
 	"os"
 	"strings"
 
-	mmclient "github.com/AndochBonin/E3/moneymanager/pkg/client"
-	"github.com/AndochBonin/E3/polymarket/clob"
-	"github.com/AndochBonin/E3/polymarket/internal/prompt"
-	"github.com/AndochBonin/E3/polymarket/models"
-	"github.com/AndochBonin/E3/polymarket/secrets"
+	mmclient "github.com/AndochBonin/calculated-tennis/moneymanager/pkg/client"
+	"github.com/AndochBonin/calculated-tennis/polymarket/clob"
+	"github.com/AndochBonin/calculated-tennis/polymarket/internal/prompt"
+	"github.com/AndochBonin/calculated-tennis/polymarket/models"
+	"github.com/AndochBonin/calculated-tennis/polymarket/secrets"
 	"github.com/joho/godotenv"
 	"github.com/shopspring/decimal"
 )

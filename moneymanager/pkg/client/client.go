@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/AndochBonin/E3/moneymanager/pkg/order"
-	moneymanagerv1 "github.com/AndochBonin/E3/moneymanager/gen/moneymanager/v1"
+	"github.com/AndochBonin/calculated-tennis/moneymanager/pkg/order"
+	moneymanagerv1 "github.com/AndochBonin/calculated-tennis/moneymanager/gen/moneymanager/v1"
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"

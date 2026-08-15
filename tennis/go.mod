@@ -1,9 +1,9 @@
-module github.com/AndochBonin/E3/tennis
+module github.com/AndochBonin/calculated-tennis/tennis
 
 go 1.25.3
 
 require (
-	github.com/AndochBonin/E3/moneymanager v0.0.0
+	github.com/AndochBonin/calculated-tennis/moneymanager v0.0.0
 	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/ethereum/go-ethereum v1.17.2
@@ -13,7 +13,7 @@ require (
 	golang.org/x/sync v0.20.0
 )
 
-replace github.com/AndochBonin/E3/moneymanager => ../moneymanager
+replace github.com/AndochBonin/calculated-tennis/moneymanager => ../moneymanager
 
 require (
 	github.com/andybalholm/cascadia v1.3.3 // indirect

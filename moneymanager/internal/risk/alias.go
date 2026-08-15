@@ -1,6 +1,6 @@
 package risk
 
-import pkgrisk "github.com/AndochBonin/E3/moneymanager/pkg/risk"
+import pkgrisk "github.com/AndochBonin/calculated-tennis/moneymanager/pkg/risk"
 
 type (
 	// BalanceReader fetches live USDC collateral for allocation.

@@ -3,7 +3,7 @@ package clob
 import (
 	"fmt"
 
-	"github.com/AndochBonin/E3/polymarket/models"
+	"github.com/AndochBonin/calculated-tennis/polymarket/models"
 	"github.com/shopspring/decimal"
 )
 

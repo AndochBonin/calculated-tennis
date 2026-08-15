@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/AndochBonin/E3/tennis/internal/prompt"
+	"github.com/AndochBonin/calculated-tennis/tennis/internal/prompt"
 )
 
 func TestResolveBacktestInputs_flagsOnly(t *testing.T) {

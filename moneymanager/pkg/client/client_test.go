@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndochBonin/E3/moneymanager/pkg/order"
-	"github.com/AndochBonin/E3/moneymanager/pkg/testserver"
+	"github.com/AndochBonin/calculated-tennis/moneymanager/pkg/order"
+	"github.com/AndochBonin/calculated-tennis/moneymanager/pkg/testserver"
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

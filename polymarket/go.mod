@@ -1,9 +1,9 @@
-module github.com/AndochBonin/E3/polymarket
+module github.com/AndochBonin/calculated-tennis/polymarket
 
 go 1.25.3
 
 require (
-	github.com/AndochBonin/E3/moneymanager v0.0.0
+	github.com/AndochBonin/calculated-tennis/moneymanager v0.0.0
 	github.com/aws/aws-sdk-go-v2 v1.41.7
 	github.com/aws/aws-sdk-go-v2/config v1.32.17
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.41.7
@@ -12,7 +12,7 @@ require (
 	github.com/shopspring/decimal v1.4.0
 )
 
-replace github.com/AndochBonin/E3/moneymanager => ../moneymanager
+replace github.com/AndochBonin/calculated-tennis/moneymanager => ../moneymanager
 
 require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect

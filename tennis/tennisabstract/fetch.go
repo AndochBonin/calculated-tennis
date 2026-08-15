@@ -19,7 +19,7 @@ const (
 	playerFragEnd    = "`;"
 
 	// userAgent identifies this project to Tennis Abstract.
-	userAgent = "e3-tennisabstract/1.0 (+https://github.com/AndochBonin/E3)"
+	userAgent = "e3-tennisabstract/1.0 (+https://github.com/AndochBonin/calculated-tennis)"
 )
 
 // newRequestWithContext is swappable in tests to cover request construction errors.

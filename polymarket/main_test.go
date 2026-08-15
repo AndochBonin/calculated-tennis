@@ -15,13 +15,13 @@ import (
 	"testing"
 	"time"
 
-	mmclient "github.com/AndochBonin/E3/moneymanager/pkg/client"
-	"github.com/AndochBonin/E3/moneymanager/pkg/order"
-	"github.com/AndochBonin/E3/moneymanager/pkg/testserver"
-	"github.com/AndochBonin/E3/polymarket/clob"
-	"github.com/AndochBonin/E3/polymarket/core"
-	"github.com/AndochBonin/E3/polymarket/gamma"
-	"github.com/AndochBonin/E3/polymarket/models"
+	mmclient "github.com/AndochBonin/calculated-tennis/moneymanager/pkg/client"
+	"github.com/AndochBonin/calculated-tennis/moneymanager/pkg/order"
+	"github.com/AndochBonin/calculated-tennis/moneymanager/pkg/testserver"
+	"github.com/AndochBonin/calculated-tennis/polymarket/clob"
+	"github.com/AndochBonin/calculated-tennis/polymarket/core"
+	"github.com/AndochBonin/calculated-tennis/polymarket/gamma"
+	"github.com/AndochBonin/calculated-tennis/polymarket/models"
 )
 
 func TestMain(m *testing.M) {

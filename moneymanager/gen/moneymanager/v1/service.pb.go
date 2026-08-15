@@ -555,7 +555,7 @@ const file_moneymanager_v1_service_proto_rawDesc = "" +
 	"\x0fORDER_SIDE_SELL\x10\x022\xc9\x01\n" +
 	"\x13MoneyManagerService\x12^\n" +
 	"\rProcessSignal\x12%.moneymanager.v1.ProcessSignalRequest\x1a&.moneymanager.v1.ProcessSignalResponse\x12R\n" +
-	"\tSignOrder\x12!.moneymanager.v1.SignOrderRequest\x1a\".moneymanager.v1.SignOrderResponseBKZIgithub.com/AndochBonin/E3/moneymanager/gen/moneymanager/v1;moneymanagerv1b\x06proto3"
+	"\tSignOrder\x12!.moneymanager.v1.SignOrderRequest\x1a\".moneymanager.v1.SignOrderResponseBKZIgithub.com/AndochBonin/calculated-tennis/moneymanager/gen/moneymanager/v1;moneymanagerv1b\x06proto3"
 
 var (
 	file_moneymanager_v1_service_proto_rawDescOnce sync.Once

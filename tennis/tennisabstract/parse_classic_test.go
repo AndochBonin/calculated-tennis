@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndochBonin/E3/tennis/models"
+	"github.com/AndochBonin/calculated-tennis/tennis/models"
 )
 
 // Rome SF row from player-classic.cgi (live values; DR ~0.73 vs jsfrags HTML).

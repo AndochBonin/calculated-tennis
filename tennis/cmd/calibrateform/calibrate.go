@@ -11,8 +11,8 @@ import (
 	"runtime"
 	"sort"
 
-	"github.com/AndochBonin/E3/tennis/tennis"
-	"github.com/AndochBonin/E3/tennis/tennisabstract"
+	"github.com/AndochBonin/calculated-tennis/tennis/tennis"
+	"github.com/AndochBonin/calculated-tennis/tennis/tennisabstract"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
 )

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/AndochBonin/E3/tennis/models"
+	"github.com/AndochBonin/calculated-tennis/tennis/models"
 )
 
 // PlayerRecentKey identifies recent results for a player strictly before a tourney date.

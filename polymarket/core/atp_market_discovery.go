@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AndochBonin/E3/polymarket/gamma"
-	"github.com/AndochBonin/E3/polymarket/models"
+	"github.com/AndochBonin/calculated-tennis/polymarket/gamma"
+	"github.com/AndochBonin/calculated-tennis/polymarket/models"
 	"golang.org/x/sync/singleflight"
 )
 

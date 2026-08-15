@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/AndochBonin/E3/tennis/tennis"
+	"github.com/AndochBonin/calculated-tennis/tennis/tennis"
 )
 
 const (

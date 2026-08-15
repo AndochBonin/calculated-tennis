@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndochBonin/E3/tennis/internal/prompt"
-	"github.com/AndochBonin/E3/tennis/tennis"
-	"github.com/AndochBonin/E3/tennis/tennisabstract"
+	"github.com/AndochBonin/calculated-tennis/tennis/internal/prompt"
+	"github.com/AndochBonin/calculated-tennis/tennis/tennis"
+	"github.com/AndochBonin/calculated-tennis/tennis/tennisabstract"
 )
 
 func TestResolveInputs_flagsOnly(t *testing.T) {

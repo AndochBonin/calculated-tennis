@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/AndochBonin/E3/polymarket/internal/prompt"
+	"github.com/AndochBonin/calculated-tennis/polymarket/internal/prompt"
 )
 
 func TestResolveInputs_bothProvided(t *testing.T) {

@@ -5,8 +5,8 @@ import (
 	"math"
 	"testing"
 
-	"github.com/AndochBonin/E3/moneymanager/pkg/risk"
-	"github.com/AndochBonin/E3/tennis/tennisabstract"
+	"github.com/AndochBonin/calculated-tennis/moneymanager/pkg/risk"
+	"github.com/AndochBonin/calculated-tennis/tennis/tennisabstract"
 )
 
 func TestCombinedParlayProbOdds(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndochBonin/E3/tennis/models"
+	"github.com/AndochBonin/calculated-tennis/tennis/models"
 )
 
 func TestRecentResultsBefore_cutoffAndLimit(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/AndochBonin/E3/tennis/tennisabstract"
+	"github.com/AndochBonin/calculated-tennis/tennis/tennisabstract"
 )
 
 func TestBetLog_skippedRow(t *testing.T) {

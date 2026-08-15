@@ -1,4 +1,4 @@
-module github.com/AndochBonin/E3/moneymanager
+module github.com/AndochBonin/calculated-tennis/moneymanager
 
 go 1.25.3
 

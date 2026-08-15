@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package moneymanager.v1;
 
-option go_package = "github.com/AndochBonin/E3/moneymanager/gen/moneymanager/v1;moneymanagerv1";
+option go_package = "github.com/AndochBonin/calculated-tennis/moneymanager/gen/moneymanager/v1;moneymanagerv1";
 
 // MoneyManagerService signs Polymarket CLOB orders and applies risk allocation.
 service MoneyManagerService {

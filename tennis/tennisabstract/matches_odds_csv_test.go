@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndochBonin/E3/tennis/tennis"
+	"github.com/AndochBonin/calculated-tennis/tennis/tennis"
 )
 
 func TestLoadMatchesWithOddsCSV_synthetic(t *testing.T) {

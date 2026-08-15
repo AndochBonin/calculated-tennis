@@ -21,9 +21,9 @@ import (
 	"math/big"
 	"os"
 
-	"github.com/AndochBonin/E3/moneymanager/internal/balance"
-	"github.com/AndochBonin/E3/moneymanager/internal/env"
-	"github.com/AndochBonin/E3/moneymanager/internal/secrets"
+	"github.com/AndochBonin/calculated-tennis/moneymanager/internal/balance"
+	"github.com/AndochBonin/calculated-tennis/moneymanager/internal/env"
+	"github.com/AndochBonin/calculated-tennis/moneymanager/internal/secrets"
 	"github.com/ethereum/go-ethereum/common"
 )
 

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndochBonin/E3/polymarket/models"
+	"github.com/AndochBonin/calculated-tennis/polymarket/models"
 )
 
 func TestNewClientPicksUpBaseURLFromEnv(t *testing.T) {

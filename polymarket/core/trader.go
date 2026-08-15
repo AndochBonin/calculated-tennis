@@ -3,7 +3,7 @@ package core
 import (
 	"context"
 
-	"github.com/AndochBonin/E3/polymarket/models"
+	"github.com/AndochBonin/calculated-tennis/polymarket/models"
 )
 
 // TradeSignal represents a trading decision emitted by a trader.

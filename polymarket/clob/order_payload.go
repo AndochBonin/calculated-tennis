@@ -1,8 +1,8 @@
 package clob
 
 import (
-	"github.com/AndochBonin/E3/moneymanager/pkg/order"
-	"github.com/AndochBonin/E3/polymarket/models"
+	"github.com/AndochBonin/calculated-tennis/moneymanager/pkg/order"
+	"github.com/AndochBonin/calculated-tennis/polymarket/models"
 )
 
 func orderSideFromModel(side models.OrderSide) order.Side {

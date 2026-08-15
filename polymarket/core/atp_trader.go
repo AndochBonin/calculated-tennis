@@ -8,9 +8,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/AndochBonin/E3/polymarket/clob"
-	"github.com/AndochBonin/E3/polymarket/gamma"
-	"github.com/AndochBonin/E3/polymarket/models"
+	"github.com/AndochBonin/calculated-tennis/polymarket/clob"
+	"github.com/AndochBonin/calculated-tennis/polymarket/gamma"
+	"github.com/AndochBonin/calculated-tennis/polymarket/models"
 )
 
 type atpMarketSubscription struct {

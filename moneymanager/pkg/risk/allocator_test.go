@@ -5,8 +5,8 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/AndochBonin/E3/moneymanager/internal/balance"
-	"github.com/AndochBonin/E3/moneymanager/internal/testutil"
+	"github.com/AndochBonin/calculated-tennis/moneymanager/internal/balance"
+	"github.com/AndochBonin/calculated-tennis/moneymanager/internal/testutil"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"

@@ -3,7 +3,7 @@ package clob
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/AndochBonin/E3/polymarket/models"
+	"github.com/AndochBonin/calculated-tennis/polymarket/models"
 	"net/http"
 )
 

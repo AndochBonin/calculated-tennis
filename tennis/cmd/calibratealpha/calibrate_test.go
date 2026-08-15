@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndochBonin/E3/tennis/tennis"
-	"github.com/AndochBonin/E3/tennis/tennisabstract"
+	"github.com/AndochBonin/calculated-tennis/tennis/tennis"
+	"github.com/AndochBonin/calculated-tennis/tennis/tennisabstract"
 )
 
 func TestEvaluateAlpha_metrics(t *testing.T) {

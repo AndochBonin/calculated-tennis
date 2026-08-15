@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndochBonin/E3/polymarket/clob"
-	"github.com/AndochBonin/E3/polymarket/models"
+	"github.com/AndochBonin/calculated-tennis/polymarket/clob"
+	"github.com/AndochBonin/calculated-tennis/polymarket/models"
 )
 
 func TestFirstOrderIDs(t *testing.T) {

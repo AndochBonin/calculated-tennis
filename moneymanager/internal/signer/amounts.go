@@ -1,7 +1,7 @@
 package signer
 
 import (
-	"github.com/AndochBonin/E3/moneymanager/internal/order"
+	"github.com/AndochBonin/calculated-tennis/moneymanager/internal/order"
 	"github.com/shopspring/decimal"
 )
 

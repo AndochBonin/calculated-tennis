@@ -4,11 +4,11 @@ package testserver
 import (
 	"net"
 
-	"github.com/AndochBonin/E3/moneymanager/pkg/risk"
-	"github.com/AndochBonin/E3/moneymanager/internal/server"
-	"github.com/AndochBonin/E3/moneymanager/internal/signer"
-	"github.com/AndochBonin/E3/moneymanager/internal/testutil"
-	moneymanagerv1 "github.com/AndochBonin/E3/moneymanager/gen/moneymanager/v1"
+	"github.com/AndochBonin/calculated-tennis/moneymanager/pkg/risk"
+	"github.com/AndochBonin/calculated-tennis/moneymanager/internal/server"
+	"github.com/AndochBonin/calculated-tennis/moneymanager/internal/signer"
+	"github.com/AndochBonin/calculated-tennis/moneymanager/internal/testutil"
+	moneymanagerv1 "github.com/AndochBonin/calculated-tennis/moneymanager/gen/moneymanager/v1"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc"

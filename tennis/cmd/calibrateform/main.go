@@ -22,7 +22,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/AndochBonin/E3/tennis/tennisabstract"
+	"github.com/AndochBonin/calculated-tennis/tennis/tennisabstract"
 	"github.com/joho/godotenv"
 )
 

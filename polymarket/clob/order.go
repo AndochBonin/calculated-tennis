@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	mmclient "github.com/AndochBonin/E3/moneymanager/pkg/client"
-	"github.com/AndochBonin/E3/polymarket/models"
+	mmclient "github.com/AndochBonin/calculated-tennis/moneymanager/pkg/client"
+	"github.com/AndochBonin/calculated-tennis/polymarket/models"
 	"github.com/shopspring/decimal"
 )
 

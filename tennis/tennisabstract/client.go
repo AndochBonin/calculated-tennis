@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/AndochBonin/E3/tennis/models"
+	"github.com/AndochBonin/calculated-tennis/tennis/models"
 )
 
 const defaultBaseURL = "https://www.tennisabstract.com"

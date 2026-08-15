@@ -26,8 +26,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/AndochBonin/E3/tennis/internal/prompt"
-	"github.com/AndochBonin/E3/tennis/tennisabstract"
+	"github.com/AndochBonin/calculated-tennis/tennis/internal/prompt"
+	"github.com/AndochBonin/calculated-tennis/tennis/tennisabstract"
 	"github.com/joho/godotenv"
 )
 

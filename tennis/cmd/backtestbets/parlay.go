@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"math/rand/v2"
 
-	"github.com/AndochBonin/E3/moneymanager/pkg/risk"
-	"github.com/AndochBonin/E3/tennis/tennis"
-	"github.com/AndochBonin/E3/tennis/tennisabstract"
+	"github.com/AndochBonin/calculated-tennis/moneymanager/pkg/risk"
+	"github.com/AndochBonin/calculated-tennis/tennis/tennis"
+	"github.com/AndochBonin/calculated-tennis/tennis/tennisabstract"
 )
 
 type parlayStrategy int

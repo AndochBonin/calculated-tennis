@@ -9,9 +9,9 @@ import (
 	"math/rand/v2"
 	"sort"
 
-	"github.com/AndochBonin/E3/moneymanager/pkg/risk"
-	"github.com/AndochBonin/E3/tennis/tennis"
-	"github.com/AndochBonin/E3/tennis/tennisabstract"
+	"github.com/AndochBonin/calculated-tennis/moneymanager/pkg/risk"
+	"github.com/AndochBonin/calculated-tennis/tennis/tennis"
+	"github.com/AndochBonin/calculated-tennis/tennis/tennisabstract"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/shopspring/decimal"
 )

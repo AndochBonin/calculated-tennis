@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndochBonin/E3/tennis/models"
+	"github.com/AndochBonin/calculated-tennis/tennis/models"
 )
 
 // matchmx column indices (var matchhead on player-classic.cgi).

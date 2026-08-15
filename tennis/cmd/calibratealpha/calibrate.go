@@ -10,8 +10,8 @@ import (
 	"os"
 	"sort"
 
-	"github.com/AndochBonin/E3/tennis/tennis"
-	"github.com/AndochBonin/E3/tennis/tennisabstract"
+	"github.com/AndochBonin/calculated-tennis/tennis/tennis"
+	"github.com/AndochBonin/calculated-tennis/tennis/tennisabstract"
 )
 
 // CalibrateConfig controls the alpha grid search.

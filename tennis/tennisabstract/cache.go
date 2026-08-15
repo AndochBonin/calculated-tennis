@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AndochBonin/E3/tennis/models"
+	"github.com/AndochBonin/calculated-tennis/tennis/models"
 	"github.com/redis/go-redis/v9"
 )
 

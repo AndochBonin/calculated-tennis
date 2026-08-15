@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AndochBonin/E3/tennis/models"
+	"github.com/AndochBonin/calculated-tennis/tennis/models"
 )
 
 func medvedevStats(t *testing.T) models.PlayerStats {
