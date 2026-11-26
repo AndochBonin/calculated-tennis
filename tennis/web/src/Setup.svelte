@@ -125,8 +125,9 @@
         </div>
       </div>
 
-      <div class="how" style="display:flex;flex-direction:column;gap:.6em;max-width:40em">
-        <span class="lbl"><span class="sq"></span>How it works</span>
+      <details class="how" style="max-width:40em" open={!matchMedia('(max-width: 1000px)').matches}>
+        <summary class="lbl"><span class="sq"></span>How it works<span class="chev" aria-hidden="true">›</span></summary>
+        <div style="display:flex;flex-direction:column;gap:.6em;margin-top:.6em">
         <p class="muted plain" style="margin:0;font-size:.9em;line-height:1.4">A Monte Carlo simulation: the match is played out thousands of times, game by game, with each game (and each tiebreak point) won by the server with chance P below. A player's win % is the share of simulated matches they win.</p>
         <p class="pw plain" aria-label="P equals one half plus one half times (H minus B) to the power alpha if H is at least B, otherwise one half minus one half times (B minus H) to the power alpha">
           <span class="pw-lhs" aria-hidden="true">P =</span>
@@ -140,7 +141,8 @@
           <dt>B</dt><dd>returner's break %</dd>
           <dt>α</dt><dd>surface alpha (on each tile): how far the H − B gap pushes P from 50%. The surface also repaints the background.</dd>
         </dl>
-      </div>
+        </div>
+      </details>
     </div>
   </div>
 </section>
@@ -154,6 +156,10 @@
   .pw-lhs, .pw-brace { grid-row: span 2; }
   .pw-brace { font-size: 2.6em; font-weight: 200; line-height: 1; margin-top: -.08em; }
   .pw > .muted { padding-left: 1em; }
+  summary { cursor: pointer; list-style: none; width: fit-content; }
+  summary::-webkit-details-marker { display: none; }
+  .chev { display: inline-block; font-size: 1.3em; line-height: 1; transition: transform .15s; }
+  details[open] .chev { transform: rotate(90deg); }
   dt { font-weight: 600; color: #141414; }
   dd { margin: 0; }
   @media (max-width: 640px) {
