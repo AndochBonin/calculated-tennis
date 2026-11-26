@@ -96,7 +96,6 @@
     </div>
 
     <footer style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:.6em 2em;font-size:.95em">
-      <span class="mark"><span class="sq"></span>tennis/cmd/web</span>
       <span class="mark"><span class="sq"></span>Based on Calculated Bets × Tennis Abstract</span>
       <span class="mark"><span class="sq"></span>Surface · {t.upper}</span>
     </footer>

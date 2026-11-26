@@ -127,7 +127,7 @@
   <div class="body">
     <div class="titlebar">
       <h1 id="ct-proj-h">Match projection</h1>
-      <span class="mark" style="gap:.5em;font-size:.95em"><span class="sq" style:background={statusDot}></span>{statusWord} · Step 2 of 2</span>
+      <span class="mark" style="gap:.5em;font-size:.95em"><span class="sq" style:background={statusDot}></span>{statusWord}</span>
     </div>
     <div class="res" style="flex:1 1 auto;min-height:0;display:grid;gap:2.6em">
       <div class="resl" style="display:flex;flex-direction:column;min-height:0">

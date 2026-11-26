@@ -61,7 +61,6 @@
   <div class="body">
     <div class="titlebar">
       <h1 id="ct-setup-h">Match setup</h1>
-      <span class="muted" style="font-size:.95em">Step 1 of 2</span>
     </div>
     <div class="cols" style="flex:1 1 auto;min-height:0;display:grid;gap:2.6em">
       <div style="display:flex;flex-direction:column;gap:.8em;min-height:0">
