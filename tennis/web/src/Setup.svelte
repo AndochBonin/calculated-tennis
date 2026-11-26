@@ -2,11 +2,12 @@
   import { THEMES } from './theme.js';
   import Court from './Court.svelte';
 
-  let { form = $bindable(), config, alphaOf, onrun, onreset } = $props();
+  let { form = $bindable(), config, alphaOf, onrun, onreset, onmatches } = $props();
 
   const PRESETS = [1000, 10000, 100000];
   let active = $state(null); // 'A' | 'B' while that input wants suggestions
   let err = $state('');
+  let busy = $state(false); // fetching player rates
 
   const simsNum = $derived(Number(String(form.sims).replace(/[,_\s]/g, '')));
   const lower = $derived(config.players.map((n) => n.toLowerCase()));
@@ -22,12 +23,16 @@
     return starts.concat(contains).slice(0, 5);
   }
 
-  function submit() {
+  async function submit() {
+    if (busy) return;
     if (!form.nameA.trim() || !form.nameB.trim()) return (err = 'Both player names are required');
     if (!Number.isInteger(simsNum) || simsNum <= 0) return (err = 'Sims must be a whole number > 0');
     if (simsNum > 100000) return (err = 'Sims must be 100,000 or fewer');
     active = null;
-    onrun(simsNum);
+    busy = true;
+    const e = await onrun(simsNum);
+    busy = false;
+    if (e) err = e;
   }
   const onkey = (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } };
   const pick = (field, name) => { field === 'A' ? (form.nameA = name) : (form.nameB = name); active = null; err = ''; };
@@ -61,10 +66,10 @@
   <div class="body">
     <div class="titlebar">
       <h1 id="ct-setup-h">Match setup</h1>
-      <span class="muted" style="font-size:.95em">Step 1 of 2</span>
+      <button type="button" class="opt mark" style="min-height:2.6em;padding:0 1em;font-size:.9em" onclick={onmatches}><span class="sq"></span>Matches</button>
     </div>
     <div class="cols" style="flex:1 1 auto;min-height:0;display:grid;gap:2.6em">
-      <div style="display:flex;flex-direction:column;gap:.8em;min-height:0">
+      <div class="surf" style="display:flex;flex-direction:column;gap:.8em;min-height:0">
         <span id="ct-surf-l" class="lbl"><span class="sq"></span>Court surface</span>
         <div role="radiogroup" aria-labelledby="ct-surf-l" class="tiles">
           {#each THEMES as s, i}
@@ -78,10 +83,9 @@
             </button>
           {/each}
         </div>
-        <p class="muted plain" style="margin:.4em 0 0;font-size:.95em;line-height:1.5;max-width:40em">The surface sets alpha — how strongly serve dominance shapes each game — and repaints the background to match the court.</p>
       </div>
 
-      <div style="display:flex;flex-direction:column;gap:1.5em;min-height:0">
+      <div class="form" style="display:flex;flex-direction:column;gap:1.5em;min-height:0">
         <div style="display:flex;flex-direction:column;gap:.6em">
           <span class="lbl"><span class="sq"></span>Players</span>
           {@render player('A', 'e.g. Jannik Sinner', THEMES[form.surface].winA)}
@@ -113,13 +117,32 @@
             <p role="alert" class="mark" style="margin:0;gap:.5em;color:#b3261e;font-weight:600"><span class="sq" style="background:#b3261e"></span>{err}</p>
           {/if}
           <div style="display:flex;gap:.6em">
-            <button type="button" class="run" style="flex:1 1 auto;min-height:3.8em;font-size:1.15em;display:flex;align-items:center;justify-content:space-between;padding:0 1.2em" onclick={submit}>
-              <span>Run simulation</span><span style="font-weight:400;opacity:.7">Enter ↵</span>
+            <button type="button" class="run" style="flex:1 1 auto;min-height:3.8em;font-size:1.15em;display:flex;align-items:center;justify-content:space-between;padding:0 1.2em" disabled={busy} aria-busy={busy} onclick={submit}>
+              <span class:pulse={busy}>{busy ? 'Fetching player data…' : 'Run simulation'}</span><span style="font-weight:400;opacity:.7">Enter ↵</span>
             </button>
             <button type="button" class="opt" style="min-height:3.8em;padding:0 1.2em;font-size:.95em" onclick={() => { err = ''; onreset(); }}>Reset</button>
           </div>
         </div>
       </div>
+
+      <details class="how" style="max-width:40em" open={!matchMedia('(max-width: 1000px)').matches}>
+        <summary class="lbl"><span class="sq"></span>How it works<span class="chev" aria-hidden="true">›</span></summary>
+        <div style="display:flex;flex-direction:column;gap:.6em;margin-top:.6em">
+        <p class="muted plain" style="margin:0;font-size:.9em;line-height:1.4">A Monte Carlo simulation: the match is played out thousands of times, game by game, with each game (and each tiebreak point) won by the server with chance P below. A player's win % is the share of simulated matches they win.</p>
+        <p class="pw plain" aria-label="P equals one half plus one half times (H minus B) to the power alpha if H is at least B, otherwise one half minus one half times (B minus H) to the power alpha">
+          <span class="pw-lhs" aria-hidden="true">P =</span>
+          <span class="pw-brace" aria-hidden="true">&#123;</span>
+          <span aria-hidden="true">½ + ½ · (H − B)<sup>α</sup></span><span class="muted" aria-hidden="true">if H ≥ B</span>
+          <span aria-hidden="true">½ − ½ · (B − H)<sup>α</sup></span><span class="muted" aria-hidden="true">if H &lt; B</span>
+        </p>
+        <dl class="muted plain" style="margin:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:.25em .8em;font-size:.9em;line-height:1.4">
+          <dt>P</dt><dd>chance the server wins a game (also each tiebreak point)</dd>
+          <dt>H</dt><dd>server's hold %, form-adjusted from Tennis Abstract</dd>
+          <dt>B</dt><dd>returner's break %</dd>
+          <dt>α</dt><dd>surface alpha (on each tile): how far the H − B gap pushes P from 50%. The surface also repaints the background.</dd>
+        </dl>
+        </div>
+      </details>
     </div>
   </div>
 </section>
@@ -129,6 +152,16 @@
   .tile:hover { background: #f4f4f4; }
   .sug { text-align: left; padding: .55em 1em; min-height: 2.6em; border: 0; background: transparent; font-size: 1em; }
   .sug:hover, .sug:focus-visible { background: #f0f0f0; }
+  .pw { margin: 0; display: grid; grid-template-columns: auto auto auto auto; justify-content: start; align-items: center; column-gap: .5em; row-gap: .15em; font-size: 1.1em; font-weight: 500; }
+  .pw-lhs, .pw-brace { grid-row: span 2; }
+  .pw-brace { font-size: 2.6em; font-weight: 200; line-height: 1; margin-top: -.08em; }
+  .pw > .muted { padding-left: 1em; }
+  summary { cursor: pointer; list-style: none; width: fit-content; }
+  summary::-webkit-details-marker { display: none; }
+  .chev { display: inline-block; font-size: 1.3em; line-height: 1; transition: transform .15s; }
+  details[open] .chev { transform: rotate(90deg); }
+  dt { font-weight: 600; color: #141414; }
+  dd { margin: 0; }
   @media (max-width: 640px) {
     .tile { display: grid; grid-template-columns: 8.5em minmax(0, 1fr); align-items: center; }
     .tile > :global(svg) { grid-row: 1 / span 2; }

@@ -42,11 +42,11 @@ func ParsePlayerHTML(r io.Reader, playerSlug string) (models.PlayerStats, error)
 	if err != nil {
 		return models.PlayerStats{}, err
 	}
-	seasons, err := parseTourLevelSeasonsTable(doc)
+	seasons, err := optionalSeasons(doc, sectionTourLevelSeasons, "tour-level seasons")
 	if err != nil {
 		return models.PlayerStats{}, err
 	}
-	challenger, err := parseChallengerSeasonsTable(doc)
+	challenger, err := optionalSeasons(doc, sectionChallengerSeasons, "challenger seasons")
 	if err != nil {
 		return models.PlayerStats{}, err
 	}
@@ -108,19 +108,14 @@ func parseRecentResultsTable(doc *goquery.Document) ([]models.RecentResult, erro
 	return rows, nil
 }
 
-func parseTourLevelSeasonsTable(doc *goquery.Document) ([]models.TourLevelSeason, error) {
-	return parseSeasonsTable(doc, sectionTourLevelSeasons, "tour-level seasons")
-}
-
-func parseChallengerSeasonsTable(doc *goquery.Document) ([]models.TourLevelSeason, error) {
-	rows, err := parseSeasonsTable(doc, sectionChallengerSeasons, "challenger seasons")
-	if err != nil {
-		if errors.Is(err, ErrTableNotFound) {
-			return nil, nil
-		}
-		return nil, err
+// optionalSeasons parses a seasons table that a player page may lack (Challenger-only
+// players have no Tour-Level Seasons; tour regulars often have no Challenger Seasons).
+func optionalSeasons(doc *goquery.Document, sectionTitle, label string) ([]models.TourLevelSeason, error) {
+	rows, err := parseSeasonsTable(doc, sectionTitle, label)
+	if errors.Is(err, ErrTableNotFound) {
+		return nil, nil
 	}
-	return rows, nil
+	return rows, err
 }
 
 func parseSeasonsTable(doc *goquery.Document, sectionTitle, label string) ([]models.TourLevelSeason, error) {

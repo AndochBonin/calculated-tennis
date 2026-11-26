@@ -2,25 +2,13 @@ package tennisabstract
 
 import (
 	"math"
-	"os"
 	"sort"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/AndochBonin/calculated-tennis/tennis/models"
 )
 
 const (
-	formMinSeasonMatchesEnv = "TENNISABSTRACT_FORM_MIN_SEASON_MATCHES"
-	formRecentMatchLimitEnv = "TENNISABSTRACT_FORM_RECENT_MATCH_LIMIT"
-	formHalfLifeMatchesEnv  = "TENNISABSTRACT_FORM_HALF_LIFE_MATCHES"
-	formWeightMaxEnv        = "TENNISABSTRACT_FORM_WEIGHT_MAX"
-	formRatioMinEnv         = "TENNISABSTRACT_FORM_RATIO_MIN"
-	formRatioMaxEnv         = "TENNISABSTRACT_FORM_RATIO_MAX"
-	// formChallengerWeightEnv scales challenger hold/break/DR (not match counts) before tour blend.
-	formChallengerWeightEnv = "TENNISABSTRACT_FORM_CHALLENGER_WEIGHT"
-
 	defaultMinSeasonMatches = 20
 	defaultRecentMatchLimit = 15
 	defaultHalfLifeMatches  = 5.0
@@ -31,19 +19,19 @@ const (
 )
 
 // FormOptions tunes hold/break form adjustment; zero values use documented defaults.
-// FormWeightMax: unset (0 with no other tuning fields) → env/default 0.30; explicit 0
-// (e.g. calibration grid with HalfLifeMatches, FormRatioMin, and FormRatioMax set) → γ = 0.
+// FormWeightMax: unset (0 with no other tuning fields) → default 0.30; explicit 0
+// (with HalfLifeMatches, FormRatioMin, and FormRatioMax set) → γ = 0.
 type FormOptions struct {
 	AsOf             time.Time // evaluation date; zero → FetchedAt or time.Now()
 	MinSeasonMatches int       // default 20: blend current + prior season when below
 	RecentMatchLimit int       // default 15: max recent rows with DR considered
 	HalfLifeMatches  float64   // default 5: exp decay half-life (index 0 = most recent)
 	FormWeightMax    float64   // cap γ; see package comment on explicit zero
-	FormRatioMin      float64 // default 0.92: clamp DR_form/DR_season
-	FormRatioMax      float64 // default 1.08
+	FormRatioMin     float64   // default 0.92: clamp DR_form/DR_season
+	FormRatioMax     float64   // default 1.08
 	// ChallengerWeight multiplies challenger HoldPct, BreakPct, and DR before they enter the
 	// evaluation-year baseline (challenger-only or match-weighted mix with a thin tour year).
-	// Match counts are unchanged. Default 0.7 (TENNISABSTRACT_FORM_CHALLENGER_WEIGHT).
+	// Match counts are unchanged. Default 0.7.
 	ChallengerWeight float64
 }
 
@@ -57,39 +45,6 @@ type AdjustedRates struct {
 	FormRatio         float64
 	FormWeight        float64
 	SeasonMatches     int
-}
-
-// SeasonBaseline returns hold, break, and DR for a calendar year using the same
-// tour/challenger blend as live season baseline (buildEffectiveCurrentSeason) and,
-// when the year has fewer than MinSeasonMatches, a weighted blend with the prior
-// tour year. Recent-form adjustment is not applied.
-func SeasonBaseline(stats models.PlayerStats, year int) (hold, breakPct, dr float64, err error) {
-	minMatches := positiveIntFromEnv(formMinSeasonMatchesEnv, defaultMinSeasonMatches)
-	chalWeight := positiveFloatFromEnv(formChallengerWeightEnv, defaultChallengerWeight)
-
-	curr, matches, ok := buildEffectiveCurrentSeason(
-		stats.TourLevelSeasons, stats.ChallengerSeasons, year, minMatches, chalWeight,
-	)
-	if !ok {
-		return 0, 0, 0, ErrNoSeasonData
-	}
-
-	h0, b0, dr0 := curr.HoldPct, curr.BreakPct, curr.DR
-	if matches < minMatches {
-		if prev, ok := findSeason(stats.TourLevelSeasons, year-1); ok {
-			w := float64(matches) / float64(matches+prev.Matches)
-			h0 = w*curr.HoldPct + (1-w)*prev.HoldPct
-			b0 = w*curr.BreakPct + (1-w)*prev.BreakPct
-			dr0 = w*curr.DR + (1-w)*prev.DR
-		}
-	}
-	return h0, b0, dr0, nil
-}
-
-// SeasonHoldBreak returns hold and break from SeasonBaseline.
-func SeasonHoldBreak(stats models.PlayerStats, year int) (hold, breakPct float64, err error) {
-	h, b, _, err := SeasonBaseline(stats, year)
-	return h, b, err
 }
 
 // AdjustedHoldBreak computes form-aware hold and break rates from scraped stats.
@@ -165,63 +120,38 @@ func AdjustedHoldBreak(stats models.PlayerStats, opts FormOptions) (AdjustedRate
 func (o FormOptions) withDefaults() FormOptions {
 	if o.MinSeasonMatches <= 0 {
 		// Blend current + prior season when the evaluation year has fewer matches.
-		o.MinSeasonMatches = positiveIntFromEnv(formMinSeasonMatchesEnv, defaultMinSeasonMatches)
+		o.MinSeasonMatches = defaultMinSeasonMatches
 	}
 	if o.RecentMatchLimit <= 0 {
 		// Cap how many recent rows with dominance ratio feed the EWMA.
-		o.RecentMatchLimit = positiveIntFromEnv(formRecentMatchLimitEnv, defaultRecentMatchLimit)
+		o.RecentMatchLimit = defaultRecentMatchLimit
 	}
 	if o.HalfLifeMatches <= 0 {
 		// Exponential decay half-life in match index (0 = most recent).
-		o.HalfLifeMatches = positiveFloatFromEnv(formHalfLifeMatchesEnv, defaultHalfLifeMatches)
+		o.HalfLifeMatches = defaultHalfLifeMatches
 	}
 	if o.FormWeightMax < 0 || (o.FormWeightMax == 0 && !formWeightMaxExplicitZero(o)) {
 		// Upper bound on γ, the share from form-adjusted hold/break.
-		o.FormWeightMax = positiveFloatFromEnv(formWeightMaxEnv, defaultFormWeightMax)
+		o.FormWeightMax = defaultFormWeightMax
 	}
 	if o.FormRatioMin <= 0 {
 		// Floor on DR_form / DR_season when scaling hold and break.
-		o.FormRatioMin = positiveFloatFromEnv(formRatioMinEnv, defaultFormRatioMin)
+		o.FormRatioMin = defaultFormRatioMin
 	}
 	if o.FormRatioMax <= 0 {
 		// Ceiling on DR_form / DR_season when scaling hold and break.
-		o.FormRatioMax = positiveFloatFromEnv(formRatioMaxEnv, defaultFormRatioMax)
+		o.FormRatioMax = defaultFormRatioMax
 	}
 	if o.ChallengerWeight <= 0 {
-		o.ChallengerWeight = positiveFloatFromEnv(formChallengerWeightEnv, defaultChallengerWeight)
+		o.ChallengerWeight = defaultChallengerWeight
 	}
 	return o
 }
 
-// formWeightMaxExplicitZero is true when callers set all tuned form fields (e.g. calibration
-// grid) including FormWeightMax=0 to disable the form blend.
+// formWeightMaxExplicitZero is true when callers set all tuned form fields including FormWeightMax=0 to disable the form blend.
 func formWeightMaxExplicitZero(o FormOptions) bool {
 	return o.FormWeightMax == 0 &&
 		o.HalfLifeMatches > 0 && o.FormRatioMin > 0 && o.FormRatioMax > 0
-}
-
-func positiveIntFromEnv(key string, fallback int) int {
-	raw := strings.TrimSpace(os.Getenv(key))
-	if raw == "" {
-		return fallback
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 0 {
-		return fallback
-	}
-	return n
-}
-
-func positiveFloatFromEnv(key string, fallback float64) float64 {
-	raw := strings.TrimSpace(os.Getenv(key))
-	if raw == "" {
-		return fallback
-	}
-	f, err := strconv.ParseFloat(raw, 64)
-	if err != nil || f <= 0 {
-		return fallback
-	}
-	return f
 }
 
 // buildEffectiveCurrentSeason resolves the evaluation-year baseline from tour and,

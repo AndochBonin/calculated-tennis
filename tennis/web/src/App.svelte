@@ -3,9 +3,12 @@
   import { THEMES, mosaic, clockStr } from './theme.js';
   import Setup from './Setup.svelte';
   import Results from './Results.svelte';
+  import Matches from './Matches.svelte';
+  import { call } from './engine.js';
 
   let config = $state({ players: [], surfaces: [], formats: [{ id: 'atp', label: 'Best of 3' }, { id: 'gs-men', label: 'Best of 5' }] });
   let form = $state({ surface: 2, nameA: '', nameB: '', format: 0, sims: '10000' });
+  let screen = $state('matches'); // matches | sim
   let view = $state('setup'); // setup | loading | results | error
   let result = $state.raw(null);
   let error = $state('');
@@ -16,23 +19,28 @@
   const alphaOf = (i) => config.surfaces[i]?.alpha;
 
   onMount(() => {
-    fetch('/api/config').then((r) => r.json()).then((c) => (config = c)).catch(() => {});
+    call('config').then((c) => (config = c)).catch(() => {});
     const tick = setInterval(() => (now = new Date()), 30000);
     return () => clearInterval(tick);
   });
 
+  // Rates are fetched while setup stays on screen; a rates failure is returned for
+  // Setup to show inline. Only once both players have data do we leave setup.
   async function run(sims) {
     const id = ++req;
+    const surface = THEMES[form.surface].id;
+    const [playerA, playerB] = [form.nameA.trim(), form.nameB.trim()];
+    // The browser HTTP cache (Tennis Abstract's max-age) skips repeat fetches.
+    const settled = await Promise.allSettled([playerA, playerB].map((p) => call('rates', p)));
+    if (id !== req) return;
+    const failed = settled.filter((s) => s.status === 'rejected').map((s) => s.reason.message);
+    if (failed.length) return failed.join(' · ');
+    const rates = settled.map((s) => s.value);
     view = 'loading';
     try {
-      const r = await fetch('/api/simulate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerA: form.nameA, playerB: form.nameB, surface: THEMES[form.surface].id, format: config.formats[form.format].id, sims })
-      });
-      const body = await r.json();
+      const body = await call('simulate',
+        JSON.stringify({ playerA, playerB, surface, format: config.formats[form.format].id, sims, rates }));
       if (id !== req) return;
-      if (!r.ok) throw new Error(body.error || r.statusText);
       result = body;
       view = 'results';
     } catch (e) {
@@ -42,6 +50,16 @@
     }
   }
 
+  async function rerun() {
+    const e = await run(result.sims);
+    if (e) { error = e; view = 'error'; }
+  }
+
+  // From the match list: prefill the selected match's players into a fresh setup.
+  function simulate(players) {
+    if (players) { [form.nameA, form.nameB] = players; toSetup(); }
+    screen = 'sim';
+  }
   function toSetup() { req++; view = 'setup'; }
   function reset() {
     req++;
@@ -83,20 +101,21 @@
   <div class="frame">
     <header class="head">
       <span class="mark" style="font-weight:600"><span class="sq" style="width:.75em;height:.75em"></span>Calculated Tennis</span>
-      <span class="mark head-mid"><span class="sq" style="width:.75em;height:.75em"></span>Monte Carlo match projection</span>
+      <span class="mark head-mid"><span class="sq" style="width:.75em;height:.75em"></span>{screen === 'matches' ? 'Live and upcoming matches' : 'Monte Carlo match projection'}</span>
       <span class="mark"><span class="sq" style="width:.75em;height:.75em"></span>{clockStr(now)}</span>
     </header>
 
     <div style="display:flex;min-height:0">
-      {#if view === 'setup'}
-        <Setup bind:form {config} {alphaOf} onrun={run} onreset={reset} />
+      {#if screen === 'matches'}
+        <Matches {t} onsimulate={simulate} />
+      {:else if view === 'setup'}
+        <Setup bind:form {config} {alphaOf} onrun={run} onreset={reset} onmatches={() => (screen = 'matches')} />
       {:else}
-        <Results {view} {form} {config} {result} {error} {t} alpha={alphaOf(form.surface)} ontosetup={toSetup} onrerun={() => run(result.sims)} />
+        <Results {view} {form} {config} {result} {error} {t} alpha={alphaOf(form.surface)} ontosetup={toSetup} onrerun={rerun} onmatches={() => (screen = 'matches')} />
       {/if}
     </div>
 
     <footer style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:.6em 2em;font-size:.95em">
-      <span class="mark"><span class="sq"></span>tennis/cmd/web</span>
       <span class="mark"><span class="sq"></span>Based on Calculated Bets × Tennis Abstract</span>
       <span class="mark"><span class="sq"></span>Surface · {t.upper}</span>
     </footer>

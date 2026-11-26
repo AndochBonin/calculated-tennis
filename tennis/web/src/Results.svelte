@@ -2,7 +2,7 @@
   import { GREY, LEVELS, fmtInt, pct, mix, scale, strength, summarize } from './theme.js';
   import Court from './Court.svelte';
 
-  let { view, form, config, result, error, t, alpha, ontosetup, onrerun } = $props();
+  let { view, form, config, result, error, t, alpha, ontosetup, onrerun, onmatches } = $props();
 
   let canvas = $state();
   let sel = $state(null);
@@ -127,7 +127,10 @@
   <div class="body">
     <div class="titlebar">
       <h1 id="ct-proj-h">Match projection</h1>
-      <span class="mark" style="gap:.5em;font-size:.95em"><span class="sq" style:background={statusDot}></span>{statusWord} · Step 2 of 2</span>
+      <span class="mark" style="gap:1.2em">
+        <span class="mark" style="gap:.5em;font-size:.95em"><span class="sq" style:background={statusDot}></span>{statusWord}</span>
+        <button type="button" class="opt mark" style="min-height:2.6em;padding:0 1em;font-size:.9em" onclick={onmatches}><span class="sq"></span>Matches</button>
+      </span>
     </div>
     <div class="res" style="flex:1 1 auto;min-height:0;display:grid;gap:2.6em">
       <div class="resl" style="display:flex;flex-direction:column;min-height:0">
@@ -224,7 +227,7 @@
     </div>
     <div class="actions">
       <button type="button" class="opt" style="min-height:3.4em;padding:0 1.4em;border-color:#141414;font-size:1em" onclick={ontosetup}>← Back to setup</button>
-      <span class="muted plain note" style="font-size:.85em;text-align:center">Hold/break rates: Tennis Abstract, form-adjusted for the surface.</span>
+      <span class="muted plain note" style="font-size:.85em;text-align:center">Hold/break rates: Tennis Abstract, form-adjusted.</span>
       <button type="button" class="run" style="min-height:3.4em;padding:0 1.6em;font-size:1em" disabled={view === 'loading' || !result} onclick={onrerun}>Run again</button>
     </div>
   </div>

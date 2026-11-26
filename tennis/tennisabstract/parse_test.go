@@ -152,27 +152,21 @@ func TestParsePlayerHTML_headingWithoutTable(t *testing.T) {
 	}
 }
 
-func TestParsePlayerHTML_seasonsTableMissing(t *testing.T) {
+// Challenger-only players have no Tour-Level Seasons table; that must not fail the parse.
+func TestParsePlayerHTML_challengerOnly(t *testing.T) {
 	t.Parallel()
 
-	recentHeader := strings.Join([]string{
-		"Date", "Tournament", "Surface", "Rd", "Rk", "vRk", "Score", "DR",
-		"A%", "DF%", "1stIn", "1st%", "2nd%", "BPSvd", "Time",
-	}, "</th><th>")
-
-	html := `<html><body>
-<h2>Recent Results</h2>
-<table><thead><tr><th>` + recentHeader + `</th></tr></thead><tbody></tbody></table>
-<h2>Tour-Level Seasons</h2>
-<p>no table</p>
-</body></html>`
-
-	_, err := ParsePlayerHTML(strings.NewReader(html), "X")
-	if err == nil {
-		t.Fatal("expected error")
+	html := strings.Replace(seasonTablesHTML(`<tr><td>2026</td><td>20</td><td>12</td><td>8</td><td>60%</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>75%</td><td>25%</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>1.0</td><td>W</td></tr>`),
+		"Tour-Level Seasons", "Other", 1)
+	stats, err := ParsePlayerHTML(strings.NewReader(html), "X")
+	if err != nil {
+		t.Fatalf("ParsePlayerHTML: %v", err)
 	}
-	if !errors.Is(err, ErrTableNotFound) {
-		t.Fatalf("expected ErrTableNotFound for seasons, got %v", err)
+	if stats.TourLevelSeasons != nil {
+		t.Fatalf("TourLevelSeasons = %v, want nil", stats.TourLevelSeasons)
+	}
+	if len(stats.ChallengerSeasons) != 1 || stats.ChallengerSeasons[0].HoldPct != 0.75 {
+		t.Fatalf("ChallengerSeasons = %+v, want one 2026 row with 75%% hold", stats.ChallengerSeasons)
 	}
 }
 
