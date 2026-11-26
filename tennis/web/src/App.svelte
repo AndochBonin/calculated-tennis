@@ -53,6 +53,11 @@
     }
   }
 
+  // From the match list: prefill the selected match's players into a fresh setup.
+  function simulate(players) {
+    if (players) { [form.nameA, form.nameB] = players; toSetup(); }
+    screen = 'sim';
+  }
   function toSetup() { req++; view = 'setup'; }
   function reset() {
     req++;
@@ -100,7 +105,7 @@
 
     <div style="display:flex;min-height:0">
       {#if screen === 'matches'}
-        <Matches {t} onsimulate={() => (screen = 'sim')} />
+        <Matches {t} onsimulate={simulate} />
       {:else if view === 'setup'}
         <Setup bind:form {config} {alphaOf} onrun={run} onreset={reset} onmatches={() => (screen = 'matches')} />
       {:else}

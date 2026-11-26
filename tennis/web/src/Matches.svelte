@@ -66,7 +66,7 @@
   <div class="body">
     <div class="titlebar">
       <h1 id="ct-matches-h">ATP matches</h1>
-      <button type="button" class="opt mark" style="min-height:2.6em;padding:0 1em;font-size:.9em" onclick={onsimulate}><span class="sq"></span>Simulate</button>
+      <button type="button" class="opt mark" style="min-height:2.6em;padding:0 1em;font-size:.9em" onclick={() => onsimulate(sel?.players)}><span class="sq"></span>Simulate</button>
     </div>
     {#if listErr}
       <p role="alert" class="mark" style="margin:0;color:#b3261e;font-weight:600"><span class="sq" style="background:#b3261e"></span>{listErr}</p>
