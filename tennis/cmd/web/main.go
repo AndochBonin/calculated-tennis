@@ -22,6 +22,7 @@ import (
 	_ "embed"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -146,6 +147,10 @@ func handleRates(w http.ResponseWriter, r *http.Request, client *tennisabstract.
 		return
 	}
 	pr, err := fetchRate(r.Context(), client, name, surface)
+	if errors.Is(err, tennisabstract.ErrPlayerNotFound) || errors.Is(err, tennisabstract.ErrNoSeasonData) {
+		writeErr(w, http.StatusNotFound, "No data found for "+name)
+		return
+	}
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, fmt.Sprintf("%s: %v", name, err))
 		return

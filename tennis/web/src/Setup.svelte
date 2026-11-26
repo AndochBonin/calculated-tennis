@@ -7,6 +7,7 @@
   const PRESETS = [1000, 10000, 100000];
   let active = $state(null); // 'A' | 'B' while that input wants suggestions
   let err = $state('');
+  let busy = $state(false); // fetching player rates
 
   const simsNum = $derived(Number(String(form.sims).replace(/[,_\s]/g, '')));
   const lower = $derived(config.players.map((n) => n.toLowerCase()));
@@ -22,12 +23,16 @@
     return starts.concat(contains).slice(0, 5);
   }
 
-  function submit() {
+  async function submit() {
+    if (busy) return;
     if (!form.nameA.trim() || !form.nameB.trim()) return (err = 'Both player names are required');
     if (!Number.isInteger(simsNum) || simsNum <= 0) return (err = 'Sims must be a whole number > 0');
     if (simsNum > 100000) return (err = 'Sims must be 100,000 or fewer');
     active = null;
-    onrun(simsNum);
+    busy = true;
+    const e = await onrun(simsNum);
+    busy = false;
+    if (e) err = e;
   }
   const onkey = (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } };
   const pick = (field, name) => { field === 'A' ? (form.nameA = name) : (form.nameB = name); active = null; err = ''; };
@@ -112,8 +117,8 @@
             <p role="alert" class="mark" style="margin:0;gap:.5em;color:#b3261e;font-weight:600"><span class="sq" style="background:#b3261e"></span>{err}</p>
           {/if}
           <div style="display:flex;gap:.6em">
-            <button type="button" class="run" style="flex:1 1 auto;min-height:3.8em;font-size:1.15em;display:flex;align-items:center;justify-content:space-between;padding:0 1.2em" onclick={submit}>
-              <span>Run simulation</span><span style="font-weight:400;opacity:.7">Enter ↵</span>
+            <button type="button" class="run" style="flex:1 1 auto;min-height:3.8em;font-size:1.15em;display:flex;align-items:center;justify-content:space-between;padding:0 1.2em" disabled={busy} aria-busy={busy} onclick={submit}>
+              <span class:pulse={busy}>{busy ? 'Fetching player data…' : 'Run simulation'}</span><span style="font-weight:400;opacity:.7">Enter ↵</span>
             </button>
             <button type="button" class="opt" style="min-height:3.8em;padding:0 1.2em;font-size:.95em" onclick={() => { err = ''; onreset(); }}>Reset</button>
           </div>

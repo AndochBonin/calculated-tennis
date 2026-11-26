@@ -23,21 +23,26 @@
     return () => clearInterval(tick);
   });
 
+  // Rates are fetched while setup stays on screen; a rates failure is returned for
+  // Setup to show inline. Only once both players have data do we leave setup.
   async function run(sims) {
     const id = ++req;
-    view = 'loading';
     const json = async (r) => {
       const body = await r.json();
       if (!r.ok) throw new Error(body.error || r.statusText);
       return body;
     };
+    const surface = THEMES[form.surface].id;
+    const [playerA, playerB] = [form.nameA.trim(), form.nameB.trim()];
+    // GET so the browser HTTP cache (Cache-Control from the server) skips repeat scrapes.
+    const settled = await Promise.allSettled([playerA, playerB].map((p) =>
+      fetch(`/api/rates?player=${encodeURIComponent(p)}&surface=${surface}`).then(json)));
+    if (id !== req) return;
+    const failed = settled.filter((s) => s.status === 'rejected').map((s) => s.reason.message);
+    if (failed.length) return failed.join(' · ');
+    const rates = settled.map((s) => s.value);
+    view = 'loading';
     try {
-      const surface = THEMES[form.surface].id;
-      const [playerA, playerB] = [form.nameA.trim(), form.nameB.trim()];
-      // GET so the browser HTTP cache (Cache-Control from the server) skips repeat scrapes.
-      const rates = await Promise.all([playerA, playerB].map((p) =>
-        fetch(`/api/rates?player=${encodeURIComponent(p)}&surface=${surface}`).then(json)));
-      if (id !== req) return;
       const body = await fetch('/api/simulate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -51,6 +56,11 @@
       error = e.message;
       view = 'error';
     }
+  }
+
+  async function rerun() {
+    const e = await run(result.sims);
+    if (e) { error = e; view = 'error'; }
   }
 
   // From the match list: prefill the selected match's players into a fresh setup.
@@ -109,7 +119,7 @@
       {:else if view === 'setup'}
         <Setup bind:form {config} {alphaOf} onrun={run} onreset={reset} onmatches={() => (screen = 'matches')} />
       {:else}
-        <Results {view} {form} {config} {result} {error} {t} alpha={alphaOf(form.surface)} ontosetup={toSetup} onrerun={() => run(result.sims)} onmatches={() => (screen = 'matches')} />
+        <Results {view} {form} {config} {result} {error} {t} alpha={alphaOf(form.surface)} ontosetup={toSetup} onrerun={rerun} onmatches={() => (screen = 'matches')} />
       {/if}
     </div>
 

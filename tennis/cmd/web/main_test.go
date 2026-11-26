@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -80,8 +81,13 @@ func TestRates(t *testing.T) {
 	t.Cleanup(func() { fetchRate = orig })
 	t.Setenv("TENNISABSTRACT_CACHE_TTL", "")
 	fetchRate = func(_ context.Context, _ *tennisabstract.Client, name string, _ tennisabstract.MatchSurface) (tennis.PlayerRates, error) {
-		if name == "Nobody" {
+		switch name {
+		case "Nobody":
 			return tennis.PlayerRates{}, errors.New("player not found")
+		case "Ghost":
+			return tennis.PlayerRates{}, fmt.Errorf("fetch: %w", tennisabstract.ErrPlayerNotFound)
+		case "Retired":
+			return tennis.PlayerRates{}, tennisabstract.ErrNoSeasonData
 		}
 		return tennis.PlayerRates{HoldPct: 0.85, BreakPct: 0.3}, nil
 	}
@@ -109,6 +115,13 @@ func TestRates(t *testing.T) {
 	rec = get("player=Nobody&surface=hard")
 	if rec.Code != http.StatusBadGateway || !strings.Contains(rec.Body.String(), "Nobody: player not found") || rec.Header().Get("Cache-Control") != "" {
 		t.Fatalf("status %d body %s cache %q, want uncached 502", rec.Code, rec.Body, rec.Header().Get("Cache-Control"))
+	}
+
+	for _, name := range []string{"Ghost", "Retired"} {
+		rec = get("player=" + name + "&surface=hard")
+		if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "No data found for "+name) {
+			t.Errorf("%s: status %d body %s, want 404 no data", name, rec.Code, rec.Body)
+		}
 	}
 }
 

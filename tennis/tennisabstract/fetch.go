@@ -50,6 +50,9 @@ func (c *Client) fetchPlayerHTML(ctx context.Context, slug string) (io.ReadClose
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("fetch player page: %w", ErrPlayerNotFound)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("fetch player page: unexpected status %d", resp.StatusCode)
 	}
