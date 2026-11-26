@@ -15,8 +15,6 @@ const (
 	defaultStake             = 1.0
 	defaultMinPick           = 0.5
 	defaultSims              = 5000
-	defaultMaxPctBalance     = 0.05
-	defaultMinShareSize      = 5.0
 	defaultMinOdds           = 0.0
 	defaultMaxParlayMatches  = 5
 )
@@ -25,10 +23,6 @@ var (
 	errInvalidStake          = errors.New("stake must be positive")
 	errInvalidMinPick        = errors.New("min-pick must be in (0,1]")
 	errInvalidSims           = errors.New("sims must be positive")
-	errInvalidInitialBalance = errors.New("initial balance must be positive")
-	errInvalidMaxPctBalance  = errors.New("max pct balance must be in (0,1]")
-	errInvalidMinShareSize   = errors.New("min share size must be positive")
-	errInvalidMaxOrderUSDC   = errors.New("max order USDC must be non-negative")
 	errInvalidMinOdds            = errors.New("min-odds must be 0 (disabled) or >= 1")
 	errInvalidBetMode            = errors.New("bet mode must be singles or parlay")
 	errInvalidMaxParlayMatches   = errors.New("max parlay matches must be >= 1 in parlay mode")
@@ -42,11 +36,6 @@ type backtestInputFlags struct {
 	requirePositiveEV  bool
 	parlay             bool
 	maxParlayMatches   string
-	moneyManager       bool
-	initialBalance     string
-	maxOrderUSDC       string
-	maxPctBalance      string
-	minShareSize       string
 }
 
 type backtestInputs struct {
@@ -57,7 +46,6 @@ type backtestInputs struct {
 	requirePositiveEV  bool
 	betMode            BetMode
 	maxParlayMatches   int
-	moneyManager       *MoneyManagerConfig
 }
 
 func resolveBacktestInputs(stdin *os.File, flags backtestInputFlags, interactive func(*os.File) bool) (backtestInputs, error) {
@@ -95,15 +83,6 @@ func resolveBacktestInputs(stdin *os.File, flags backtestInputFlags, interactive
 		return backtestInputs{}, err
 	}
 
-	useMM, err := resolveUseMoneyManager(flags.moneyManager, br)
-	if err != nil {
-		return backtestInputs{}, err
-	}
-	mm, err := resolveMoneyManagerConfig(useMM, flags, br)
-	if err != nil {
-		return backtestInputs{}, err
-	}
-
 	return backtestInputs{
 		stake:              stake,
 		minPick:            minPick,
@@ -112,7 +91,6 @@ func resolveBacktestInputs(stdin *os.File, flags backtestInputFlags, interactive
 		requirePositiveEV:  requireEV,
 		betMode:            betMode,
 		maxParlayMatches:   maxParlay,
-		moneyManager:       mm,
 	}, nil
 }
 
@@ -204,147 +182,6 @@ func resolveMinOdds(flagVal string, br *bufio.Reader) (float64, error) {
 	return minOdds, nil
 }
 
-func resolveUseMoneyManager(mmFlag bool, br *bufio.Reader) (bool, error) {
-	if mmFlag {
-		return true, nil
-	}
-	if br == nil {
-		return false, nil
-	}
-	raw, err := prompt.ReadLineFrom(os.Stderr, br, "Use money manager? [y/N]: ")
-	if err != nil {
-		return false, err
-	}
-	return parseYesNo(raw), nil
-}
-
-func parseYesNo(raw string) bool {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "y", "yes":
-		return true
-	default:
-		return false
-	}
-}
-
-func resolveMoneyManagerConfig(useMM bool, flags backtestInputFlags, br *bufio.Reader) (*MoneyManagerConfig, error) {
-	if !useMM {
-		return nil, nil
-	}
-
-	initialBalance, err := resolveInitialBalance(flags.initialBalance, br)
-	if err != nil {
-		return nil, err
-	}
-	maxOrderUSDC, err := resolveMaxOrderUSDC(flags.maxOrderUSDC, br)
-	if err != nil {
-		return nil, err
-	}
-	maxPctBalance, err := resolveMaxPctBalance(flags.maxPctBalance, br)
-	if err != nil {
-		return nil, err
-	}
-	minShareSize, err := resolveMinShareSize(flags.minShareSize, br)
-	if err != nil {
-		return nil, err
-	}
-
-	return &MoneyManagerConfig{
-		InitialBalance: initialBalance,
-		MaxOrderUSDC:   maxOrderUSDC,
-		MaxPctBalance:  maxPctBalance,
-		MinShareSize:   minShareSize,
-	}, nil
-}
-
-func resolveInitialBalance(flagVal string, br *bufio.Reader) (float64, error) {
-	raw := strings.TrimSpace(flagVal)
-	if raw == "" && br != nil {
-		var err error
-		raw, err = prompt.ReadLineFrom(os.Stderr, br, "Initial balance (USDC): ")
-		if err != nil {
-			return 0, err
-		}
-	}
-	if raw == "" {
-		return 0, errInvalidInitialBalance
-	}
-	balance, err := strconv.ParseFloat(raw, 64)
-	if err != nil {
-		return 0, fmt.Errorf("%w: %v", errInvalidInitialBalance, err)
-	}
-	if balance <= 0 {
-		return 0, errInvalidInitialBalance
-	}
-	return balance, nil
-}
-
-func resolveMaxOrderUSDC(flagVal string, br *bufio.Reader) (string, error) {
-	raw := strings.TrimSpace(flagVal)
-	if raw == "" && br != nil {
-		var err error
-		raw, err = prompt.ReadLineFrom(os.Stderr, br, "MONEYMANAGER_MAX_ORDER_USDC (Enter = no cap): ")
-		if err != nil {
-			return "", err
-		}
-	}
-	if raw == "" {
-		return "", nil
-	}
-	cap, err := strconv.ParseFloat(raw, 64)
-	if err != nil {
-		return "", fmt.Errorf("%w: %v", errInvalidMaxOrderUSDC, err)
-	}
-	if cap < 0 {
-		return "", errInvalidMaxOrderUSDC
-	}
-	return raw, nil
-}
-
-func resolveMaxPctBalance(flagVal string, br *bufio.Reader) (float64, error) {
-	raw := strings.TrimSpace(flagVal)
-	if raw == "" && br != nil {
-		var err error
-		raw, err = prompt.ReadLineFrom(os.Stderr, br, fmt.Sprintf("MONEYMANAGER_MAX_PCT_BALANCE [%.2f]: ", defaultMaxPctBalance))
-		if err != nil {
-			return 0, err
-		}
-	}
-	if raw == "" {
-		return defaultMaxPctBalance, nil
-	}
-	maxPct, err := strconv.ParseFloat(raw, 64)
-	if err != nil {
-		return 0, fmt.Errorf("%w: %v", errInvalidMaxPctBalance, err)
-	}
-	if maxPct <= 0 || maxPct > 1 {
-		return 0, errInvalidMaxPctBalance
-	}
-	return maxPct, nil
-}
-
-func resolveMinShareSize(flagVal string, br *bufio.Reader) (float64, error) {
-	raw := strings.TrimSpace(flagVal)
-	if raw == "" && br != nil {
-		var err error
-		raw, err = prompt.ReadLineFrom(os.Stderr, br, fmt.Sprintf("MONEYMANAGER_MIN_SHARE_SIZE [%.0f]: ", defaultMinShareSize))
-		if err != nil {
-			return 0, err
-		}
-	}
-	if raw == "" {
-		return defaultMinShareSize, nil
-	}
-	minSize, err := strconv.ParseFloat(raw, 64)
-	if err != nil {
-		return 0, fmt.Errorf("%w: %v", errInvalidMinShareSize, err)
-	}
-	if minSize <= 0 {
-		return 0, errInvalidMinShareSize
-	}
-	return minSize, nil
-}
-
 func resolveStake(flagVal string, br *bufio.Reader) (float64, error) {
 	raw := strings.TrimSpace(flagVal)
 	if raw == "" && br != nil {
@@ -409,4 +246,13 @@ func resolveSims(flagVal string, br *bufio.Reader) (int, error) {
 		return 0, errInvalidSims
 	}
 	return sims, nil
+}
+
+func parseYesNo(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "y", "yes":
+		return true
+	default:
+		return false
+	}
 }

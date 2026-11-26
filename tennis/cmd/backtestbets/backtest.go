@@ -5,15 +5,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math/big"
 	"math/rand/v2"
 	"sort"
 
-	"github.com/AndochBonin/calculated-tennis/moneymanager/pkg/risk"
 	"github.com/AndochBonin/calculated-tennis/tennis/tennis"
 	"github.com/AndochBonin/calculated-tennis/tennis/tennisabstract"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/shopspring/decimal"
 )
 
 // BetMode selects singles (one bet per match) or parlay (greedy non-overlapping windows).
@@ -24,14 +20,6 @@ const (
 	BetModeParlay  BetMode = "parlay"
 )
 
-// MoneyManagerConfig holds bankroll and risk limits for dynamic stake sizing.
-type MoneyManagerConfig struct {
-	InitialBalance float64
-	MaxOrderUSDC   string // empty = no absolute cap
-	MaxPctBalance  float64
-	MinShareSize   float64
-}
-
 // BacktestConfig controls the chronological betting walk.
 type BacktestConfig struct {
 	MatchesPath   string
@@ -41,10 +29,9 @@ type BacktestConfig struct {
 	MinPick       float64
 	MinOdds           float64 // skip bets below this decimal odds; 0 = no minimum
 	RequirePositiveEV bool    // reject bets when sim E = p·odds − 1 ≤ 0; default false
-	Stake             float64 // amount risked per bet (win profit is stake×(odds−1)); ignored when MoneyManager is set
+	Stake             float64 // amount risked per bet (win profit is stake×(odds−1))
 	Seed          uint64
 	Log           *slog.Logger
-	MoneyManager      *MoneyManagerConfig // nil = fixed stake mode
 	BetLogDir         string              // directory for per-match CSV logs; empty disables logging (tests)
 	BetMode           BetMode             // singles (default) or parlay
 	MaxParlayMatches  int                 // max legs per parlay; required when BetMode is parlay
@@ -76,7 +63,7 @@ type BacktestStats struct {
 	FinalBalance  float64
 	GrossProfit   float64 // sum of net profit on wins (stake × (odds − 1))
 	GrossLoss     float64 // sum of stakes lost
-	TotalWagered  float64 // sum of stakes placed (money manager mode)
+	TotalWagered  float64 // sum of stakes placed
 	Bets          int
 	Wins          int
 	Losses        int
@@ -152,27 +139,6 @@ func (cfg *BacktestConfig) validate() error {
 	if cfg.Stake <= 0 {
 		return fmt.Errorf("stake must be positive")
 	}
-	if cfg.MoneyManager != nil {
-		mm := cfg.MoneyManager
-		if mm.InitialBalance <= 0 {
-			return fmt.Errorf("initial balance must be positive")
-		}
-		if mm.MaxPctBalance <= 0 || mm.MaxPctBalance > 1 {
-			return fmt.Errorf("max pct balance must be in (0,1]")
-		}
-		if mm.MinShareSize <= 0 {
-			return fmt.Errorf("min share size must be positive")
-		}
-		if mm.MaxOrderUSDC != "" {
-			cap, err := decimal.NewFromString(mm.MaxOrderUSDC)
-			if err != nil {
-				return fmt.Errorf("max order USDC: %w", err)
-			}
-			if cap.IsNegative() {
-				return fmt.Errorf("max order USDC must be non-negative")
-			}
-		}
-	}
 	if cfg.BetMode == "" {
 		cfg.BetMode = BetModeSingles
 	}
@@ -203,7 +169,7 @@ func (cfg BacktestConfig) oddsAllowed(odds float64) bool {
 }
 
 func evAllowed(winProb, odds float64) bool {
-	return risk.ExpectedValueDecimalOdds(winProb, odds) > 0
+	return winProb*odds-1 > 0
 }
 
 func (cfg BacktestConfig) positiveEVAllowed(winProb, odds float64) bool {
@@ -269,24 +235,20 @@ func walkBacktests(ctx context.Context, cfg BacktestConfig, eligible []tennisabs
 	out.SimForm.MatchesWalk = n
 	out.Favorite.MatchesWalk = n
 
-	mmAllocs, err := newMMWalkAllocators(cfg.MoneyManager, &out)
-	if err != nil {
-		return BacktestRunResult{}, err
-	}
 	fixedStake := cfg.normalizedStake()
 	winner := historicalWinnerSide()
 
 	var logs *backtestBetLogs
 	if cfg.BetLogDir != "" {
-		logs = newBacktestBetLogs(cfg.MoneyManager)
+		logs = newBacktestBetLogs()
 		out.BetLogs = logs
 	}
 
 	if cfg.BetMode == BetModeParlay {
-		return walkBacktestsParlay(ctx, cfg, eligible, rates, taClient, rng, &out, mmAllocs, logs, fixedStake, winner)
+		return walkBacktestsParlay(ctx, cfg, eligible, rates, taClient, rng, &out, logs, fixedStake, winner)
 	}
 
-	return walkBacktestsSingles(ctx, cfg, eligible, rates, taClient, rng, &out, mmAllocs, logs, fixedStake, winner)
+	return walkBacktestsSingles(ctx, cfg, eligible, rates, taClient, rng, &out, logs, fixedStake, winner)
 }
 
 func walkBacktestsSingles(
@@ -297,7 +259,6 @@ func walkBacktestsSingles(
 	taClient *tennisabstract.Client,
 	rng *rand.Rand,
 	out *BacktestRunResult,
-	mmAllocs *mmWalkAllocators,
 	logs *backtestBetLogs,
 	fixedStake float64,
 	winner tennisabstract.BetSide,
@@ -320,12 +281,8 @@ func walkBacktestsSingles(
 		if err != nil {
 			return BacktestRunResult{}, err
 		}
-		var simAlloc, favAlloc, formAlloc *risk.Allocator
-		if mmAllocs != nil {
-			simAlloc, favAlloc, formAlloc = mmAllocs.sim, mmAllocs.favorite, mmAllocs.simForm
-		}
-		tryPlaceSimBet(ctx, cfg, simAlloc, logs.simTrack(), m, &out.Sim, simSide, simOdds, simWinProb, bet, winner, fixedStake)
-		if err := tryPlaceFavoriteBet(ctx, cfg, favAlloc, logs.favoriteTrack(), m, &out.Favorite, winsA, bet, winner, fixedStake); err != nil {
+		tryPlaceSimBet(cfg, logs.simTrack(), m, &out.Sim, simSide, simOdds, simWinProb, bet, winner, fixedStake)
+		if err := tryPlaceFavoriteBet(cfg, logs.favoriteTrack(), m, &out.Favorite, winsA, bet, winner, fixedStake); err != nil {
 			return BacktestRunResult{}, err
 		}
 
@@ -342,7 +299,7 @@ func walkBacktestsSingles(
 		if err != nil {
 			return BacktestRunResult{}, err
 		}
-		tryPlaceSimBet(ctx, cfg, formAlloc, logs.simFormTrack(), m, &out.SimForm, formSide, formOdds, formWinProb, formBet, winner, fixedStake)
+		tryPlaceSimBet(cfg, logs.simFormTrack(), m, &out.SimForm, formSide, formOdds, formWinProb, formBet, winner, fixedStake)
 	}
 
 	return *out, nil
@@ -356,27 +313,21 @@ func walkBacktestsParlay(
 	taClient *tennisabstract.Client,
 	rng *rand.Rand,
 	out *BacktestRunResult,
-	mmAllocs *mmWalkAllocators,
 	logs *backtestBetLogs,
 	fixedStake float64,
 	winner tennisabstract.BetSide,
 ) (BacktestRunResult, error) {
-	var simAlloc, favAlloc, formAlloc *risk.Allocator
-	if mmAllocs != nil {
-		simAlloc, favAlloc, formAlloc = mmAllocs.sim, mmAllocs.favorite, mmAllocs.simForm
-	}
 	tracks := []struct {
 		strategy parlayStrategy
 		stats    *BacktestStats
-		alloc    *risk.Allocator
 		log      *strategyBetLog
 	}{
-		{parlayStrategySim, &out.Sim, simAlloc, logs.simTrack()},
-		{parlayStrategyFavorite, &out.Favorite, favAlloc, logs.favoriteTrack()},
-		{parlayStrategySimForm, &out.SimForm, formAlloc, logs.simFormTrack()},
+		{parlayStrategySim, &out.Sim, logs.simTrack()},
+		{parlayStrategyFavorite, &out.Favorite, logs.favoriteTrack()},
+		{parlayStrategySimForm, &out.SimForm, logs.simFormTrack()},
 	}
 	for _, track := range tracks {
-		if err := walkParlayTrack(ctx, cfg, eligible, rates, taClient, rng, track.strategy, track.stats, track.alloc, track.log, fixedStake, winner); err != nil {
+		if err := walkParlayTrack(ctx, cfg, eligible, rates, taClient, rng, track.strategy, track.stats, track.log, fixedStake, winner); err != nil {
 			return BacktestRunResult{}, err
 		}
 	}
@@ -392,7 +343,6 @@ func walkParlayTrack(
 	rng *rand.Rand,
 	strategy parlayStrategy,
 	stats *BacktestStats,
-	alloc *risk.Allocator,
 	log *strategyBetLog,
 	fixedStake float64,
 	winner tennisabstract.BetSide,
@@ -406,7 +356,7 @@ func walkParlayTrack(
 			return err
 		}
 		if ok {
-			placeParlay(ctx, cfg, alloc, log, legs, stats, fixedStake)
+			placeParlay(log, legs, stats, fixedStake)
 			i += k
 			continue
 		}
@@ -425,63 +375,8 @@ func walkParlayTrack(
 	return nil
 }
 
-// simBalance implements risk.BalanceReader for backtest bankrolls.
-// Available USDC is initial balance plus cumulative PnL (FinalBalance).
-type simBalance struct {
-	initial float64
-	stats   *BacktestStats
-}
-
-func (s *simBalance) USDCTotal(ctx context.Context, _ common.Address) (*big.Int, error) {
-	_ = ctx
-	available := decimal.NewFromFloat(s.initial).Add(decimal.NewFromFloat(s.stats.FinalBalance))
-	if available.IsNegative() {
-		available = decimal.Zero
-	}
-	raw := available.Mul(decimal.NewFromInt(1_000_000)).Round(0).BigInt()
-	return raw, nil
-}
-
-type mmWalkAllocators struct {
-	sim      *risk.Allocator
-	favorite *risk.Allocator
-	simForm  *risk.Allocator
-}
-
-func newMMWalkAllocators(mm *MoneyManagerConfig, out *BacktestRunResult) (*mmWalkAllocators, error) {
-	if mm == nil {
-		return nil, nil
-	}
-	riskCfg, err := riskConfigFromMoneyManager(mm)
-	if err != nil {
-		return nil, err
-	}
-	return &mmWalkAllocators{
-		sim: risk.NewAllocator(&simBalance{initial: mm.InitialBalance, stats: &out.Sim}, riskCfg),
-		favorite: risk.NewAllocator(&simBalance{initial: mm.InitialBalance, stats: &out.Favorite}, riskCfg),
-		simForm: risk.NewAllocator(&simBalance{initial: mm.InitialBalance, stats: &out.SimForm}, riskCfg),
-	}, nil
-}
-
-func riskConfigFromMoneyManager(mm *MoneyManagerConfig) (risk.Config, error) {
-	cfg := risk.Config{
-		MaxPctBalance: decimal.NewFromFloat(mm.MaxPctBalance),
-		MinShareSize:  decimal.NewFromFloat(mm.MinShareSize),
-	}
-	if mm.MaxOrderUSDC != "" {
-		cap, err := decimal.NewFromString(mm.MaxOrderUSDC)
-		if err != nil {
-			return risk.Config{}, fmt.Errorf("max order USDC: %w", err)
-		}
-		cfg.MaxOrderUSDC = cap
-	}
-	return cfg, nil
-}
-
 func tryPlaceSimBet(
-	ctx context.Context,
 	cfg BacktestConfig,
-	alloc *risk.Allocator,
 	log *strategyBetLog,
 	m tennisabstract.MatchWithOdds,
 	stats *BacktestStats,
@@ -512,13 +407,11 @@ func tryPlaceSimBet(
 		}
 		return
 	}
-	placeBet(ctx, alloc, log, m, stats, side, odds, winProb, winner, fixedStake)
+	applyBetWithLog(log, m, stats, side, odds, fixedStake, winProb, winner)
 }
 
 func tryPlaceFavoriteBet(
-	ctx context.Context,
 	cfg BacktestConfig,
-	alloc *risk.Allocator,
 	log *strategyBetLog,
 	m tennisabstract.MatchWithOdds,
 	stats *BacktestStats,
@@ -553,47 +446,8 @@ func tryPlaceFavoriteBet(
 		}
 		return nil
 	}
-	placeBet(ctx, alloc, log, m, stats, favSide, favOdds, favWinProb, winner, fixedStake)
+	applyBetWithLog(log, m, stats, favSide, favOdds, fixedStake, favWinProb, winner)
 	return nil
-}
-
-func placeBet(
-	ctx context.Context,
-	alloc *risk.Allocator,
-	log *strategyBetLog,
-	m tennisabstract.MatchWithOdds,
-	stats *BacktestStats,
-	picked tennisabstract.BetSide,
-	odds, winProb float64,
-	winner tennisabstract.BetSide,
-	fixedStake float64,
-) {
-	if alloc != nil {
-		tryApplyBet(ctx, alloc, log, m, stats, picked, odds, winProb, winner)
-		return
-	}
-	applyBetWithLog(log, m, stats, picked, odds, fixedStake, winProb, winner)
-}
-
-func tryApplyBet(
-	ctx context.Context,
-	alloc *risk.Allocator,
-	log *strategyBetLog,
-	m tennisabstract.MatchWithOdds,
-	stats *BacktestStats,
-	picked tennisabstract.BetSide,
-	odds, winProb float64,
-	actualWinner tennisabstract.BetSide,
-) {
-	stake, ok := allocateStake(ctx, alloc, odds)
-	if !ok {
-		stats.Skipped++
-		if log != nil {
-			log.recordSkip(m, skipReasonALLOC, winProb, odds)
-		}
-		return
-	}
-	applyBetWithLog(log, m, stats, picked, odds, stake, winProb, actualWinner)
 }
 
 func applyBetWithLog(
@@ -608,16 +462,6 @@ func applyBetWithLog(
 		log.recordBet(m, stats, picked, odds, stake, winProb, actualWinner)
 	}
 	applyBet(stats, m.Surface, picked, odds, stake, actualWinner)
-}
-
-func allocateStake(ctx context.Context, alloc *risk.Allocator, decimalOdds float64) (float64, bool) {
-	price := decimal.NewFromInt(1).Div(decimal.NewFromFloat(decimalOdds))
-	size, err := alloc.Allocate(ctx, risk.SideBuy, price)
-	if err != nil {
-		return 0, false
-	}
-	stake, _ := size.Mul(price).Float64()
-	return stake, true
 }
 
 func simulateAndDecide(

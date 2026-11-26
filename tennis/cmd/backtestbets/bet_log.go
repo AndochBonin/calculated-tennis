@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/AndochBonin/calculated-tennis/moneymanager/pkg/risk"
 	"github.com/AndochBonin/calculated-tennis/tennis/tennisabstract"
 )
 
@@ -22,7 +21,6 @@ const (
 	skipReasonMINPICK        = "MINPICK"
 	skipReasonNEGEV          = "NEG_EV"
 	skipReasonMINOdds        = "MIN_ODDS"
-	skipReasonALLOC          = "ALLOC"
 	skipReasonNORates        = "NO_RATES"
 	skipReasonNOValidParlay  = "NO_VALID_PARLAY"
 
@@ -86,15 +84,11 @@ func (logs *backtestBetLogs) favoriteTrack() *strategyBetLog {
 	return logs.favorite
 }
 
-func newBacktestBetLogs(mm *MoneyManagerConfig) *backtestBetLogs {
-	var initial float64
-	if mm != nil {
-		initial = mm.InitialBalance
-	}
+func newBacktestBetLogs() *backtestBetLogs {
 	return &backtestBetLogs{
-		sim:      newStrategyBetLog(initial),
-		simForm:  newStrategyBetLog(initial),
-		favorite: newStrategyBetLog(initial),
+		sim:      newStrategyBetLog(0),
+		simForm:  newStrategyBetLog(0),
+		favorite: newStrategyBetLog(0),
 	}
 }
 
@@ -109,7 +103,7 @@ func (l *strategyBetLog) recordSkip(m tennisabstract.MatchWithOdds, reason strin
 }
 
 // recordParlaySkip logs a parlay anchor that did not place. combinedWinProb and combinedOdds
-// populate ev when positive (e.g. ALLOC). parlay_size is left empty.
+// populate ev when positive. parlay_size is left empty.
 func (l *strategyBetLog) recordParlaySkip(m tennisabstract.MatchWithOdds, reason string, combinedWinProb, combinedOdds float64) {
 	l.rows = append(l.rows, betLogRow(m, "", "", "", "", "", "", combinedWinProb, combinedOdds, reason, betLogParlayExtras{
 		combinedOdds:    combinedOdds,
@@ -257,7 +251,7 @@ func formatEV(winProb, decimalOdds float64) string {
 	if winProb <= 0 || decimalOdds <= 0 {
 		return ""
 	}
-	return formatBetFloat(risk.ExpectedValueDecimalOdds(winProb, decimalOdds))
+	return formatBetFloat(winProb*decimalOdds - 1)
 }
 
 func formatTourneyDate(yyyymmdd int) string {

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"math"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -10,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AndochBonin/calculated-tennis/moneymanager/pkg/risk"
 	"github.com/AndochBonin/calculated-tennis/tennis/tennis"
 	"github.com/AndochBonin/calculated-tennis/tennis/tennisabstract"
 )
@@ -240,137 +238,6 @@ func TestBacktestConfig_oddsAllowed(t *testing.T) {
 	}
 }
 
-func TestRunBacktests_moneyManagerSkipsWhenBalanceTooLow(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	matchesPath := filepath.Join(dir, "matches.csv")
-	if err := os.WriteFile(matchesPath, []byte(smokeMatchesCSV), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	ratesPath := filepath.Join(dir, "rates.json")
-	if err := os.WriteFile(ratesPath, []byte(smokeRatesJSON), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := BacktestConfig{
-		MatchesPath: matchesPath,
-		RatesPath:   ratesPath,
-		Sims:        100,
-		Alpha:       1,
-		MinPick:     0.5,
-		Seed:        42,
-		MoneyManager: &MoneyManagerConfig{
-			InitialBalance: 1,
-			MaxPctBalance:  0.05,
-			MinShareSize:   5,
-		},
-	}
-
-	res, err := RunBacktests(cfg)
-	if err != nil {
-		t.Fatalf("RunBacktests: %v", err)
-	}
-	stats := res.Sim
-	if stats.Bets != 0 {
-		t.Fatalf("expected no bets with 1 USDC bankroll and min 5 shares, got %d bets", stats.Bets)
-	}
-	if stats.Skipped != stats.MatchesWalk {
-		t.Fatalf("expected all matches skipped after allocation failure, skipped=%d walk=%d", stats.Skipped, stats.MatchesWalk)
-	}
-	if stats.TotalWagered != 0 {
-		t.Fatalf("TotalWagered = %v, want 0", stats.TotalWagered)
-	}
-	if stats.GrossProfit-stats.GrossLoss != stats.FinalBalance {
-		t.Fatalf("gross_profit(%.2f) - gross_loss(%.2f) != final_balance(%.2f)",
-			stats.GrossProfit, stats.GrossLoss, stats.FinalBalance)
-	}
-}
-
-func TestRunBacktests_moneyManagerSmoke(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	matchesPath := filepath.Join(dir, "matches.csv")
-	if err := os.WriteFile(matchesPath, []byte(smokeMatchesCSV), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	ratesPath := filepath.Join(dir, "rates.json")
-	if err := os.WriteFile(ratesPath, []byte(smokeRatesJSON), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := BacktestConfig{
-		MatchesPath: matchesPath,
-		RatesPath:   ratesPath,
-		Sims:        100,
-		Alpha:       1,
-		MinPick:     0.5,
-		Seed:        42,
-		MoneyManager: &MoneyManagerConfig{
-			InitialBalance: 10_000,
-			MaxPctBalance:  0.05,
-			MinShareSize:   5,
-		},
-	}
-
-	fixed, err := RunBacktests(BacktestConfig{
-		MatchesPath: matchesPath,
-		RatesPath:   ratesPath,
-		Sims:        100,
-		Alpha:       1,
-		MinPick:     0.5,
-		Seed:        42,
-		Stake:       1,
-	})
-	if err != nil {
-		t.Fatalf("RunBacktests fixed stake: %v", err)
-	}
-
-	res, err := RunBacktests(cfg)
-	if err != nil {
-		t.Fatalf("RunBacktests: %v", err)
-	}
-
-	assertMMStats := func(name string, stats BacktestStats) {
-		t.Helper()
-		if stats.Bets == 0 {
-			t.Fatalf("%s: expected bets with 10000 USDC bankroll, got 0", name)
-		}
-		if stats.TotalWagered <= 0 {
-			t.Fatalf("%s: TotalWagered = %v, want > 0", name, stats.TotalWagered)
-		}
-		if stats.GrossProfit-stats.GrossLoss != stats.FinalBalance {
-			t.Fatalf("%s: gross_profit(%.2f) - gross_loss(%.2f) != final_balance(%.2f)",
-				name, stats.GrossProfit, stats.GrossLoss, stats.FinalBalance)
-		}
-	}
-
-	assertMMStats("sim", res.Sim)
-	assertMMStats("favorite", res.Favorite)
-	if fixed.SimForm.Bets > 0 {
-		assertMMStats("sim-form", res.SimForm)
-		if res.SimForm.Bets != fixed.SimForm.Bets {
-			t.Fatalf("sim-form bets = %d, fixed = %d", res.SimForm.Bets, fixed.SimForm.Bets)
-		}
-	}
-
-	// Same bet/no-bet decisions as fixed stake; only sizing differs.
-	if res.Sim.Bets != fixed.Sim.Bets || res.Sim.Skipped != fixed.Sim.Skipped {
-		t.Fatalf("sim bets/skipped = %d/%d, fixed = %d/%d",
-			res.Sim.Bets, res.Sim.Skipped, fixed.Sim.Bets, fixed.Sim.Skipped)
-	}
-	if res.Favorite.Bets != fixed.Favorite.Bets {
-		t.Fatalf("favorite bets = %d, fixed = %d", res.Favorite.Bets, fixed.Favorite.Bets)
-	}
-
-	// Net PnL + bankroll feedback must stay in a plausible range (guards gross-return bug).
-	const maxAbsPnL = 1_000_000
-	if math.Abs(res.Sim.FinalBalance) > maxAbsPnL || math.IsInf(res.Sim.FinalBalance, 0) || math.IsNaN(res.Sim.FinalBalance) {
-		t.Fatalf("sim FinalBalance = %v, want finite and |x| <= %d", res.Sim.FinalBalance, maxAbsPnL)
-	}
-}
-
 func TestSettleBet(t *testing.T) {
 	t.Parallel()
 
@@ -432,19 +299,9 @@ func runParlaySimTrack(t *testing.T, cfg BacktestConfig) BacktestStats {
 		t.Fatal(err)
 	}
 
-	var out BacktestRunResult
-	mmAllocs, err := newMMWalkAllocators(cfg.MoneyManager, &out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var alloc *risk.Allocator
-	if mmAllocs != nil {
-		alloc = mmAllocs.sim
-	}
-
 	var log *strategyBetLog
 	if cfg.BetLogDir != "" {
-		logs := newBacktestBetLogs(cfg.MoneyManager)
+		logs := newBacktestBetLogs()
 		log = logs.sim
 	}
 
@@ -452,7 +309,7 @@ func runParlaySimTrack(t *testing.T, cfg BacktestConfig) BacktestStats {
 	ctx := context.Background()
 	client := tennisabstract.NewClient(tennisabstract.CareerClientOptionsFromEnv()...)
 	rng := rand.New(rand.NewPCG(cfg.Seed, mixSeed(cfg.Seed)))
-	if err := walkParlayTrack(ctx, cfg, eligible, rates, client, rng, parlayStrategySim, &stats, alloc, log, cfg.normalizedStake(), historicalWinnerSide()); err != nil {
+	if err := walkParlayTrack(ctx, cfg, eligible, rates, client, rng, parlayStrategySim, &stats, log, cfg.normalizedStake(), historicalWinnerSide()); err != nil {
 		t.Fatal(err)
 	}
 	if cfg.BetLogDir != "" {
@@ -548,60 +405,6 @@ func TestRunBacktests_parlay_requirePositiveEVFewerParlays(t *testing.T) {
 	}
 }
 
-func TestRunBacktests_parlay_moneyManagerOneAllocationPerParlay(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	matchesPath, ratesPath := writeParlaySmokeFiles(t, dir)
-	logDir := filepath.Join(dir, "logs")
-
-	fixed := runParlaySimTrack(t, parlayBacktestConfig(matchesPath, ratesPath))
-
-	mmCfg := parlayBacktestConfig(matchesPath, ratesPath)
-	mmCfg.BetLogDir = logDir
-	mmCfg.MoneyManager = &MoneyManagerConfig{
-		InitialBalance: 10_000,
-		MaxPctBalance:  0.05,
-		MinShareSize:   5,
-	}
-	mm := runParlaySimTrack(t, mmCfg)
-
-	if mm.Bets == 0 {
-		t.Fatal("expected parlays with money manager bankroll")
-	}
-	if mm.Bets != fixed.Bets {
-		t.Fatalf("sim parlays = %d, fixed stake = %d (same placement decisions)", mm.Bets, fixed.Bets)
-	}
-	if mm.ParlayLegs != fixed.ParlayLegs {
-		t.Fatalf("sim ParlayLegs = %d, fixed = %d", mm.ParlayLegs, fixed.ParlayLegs)
-	}
-	if mm.TotalWagered <= 0 {
-		t.Fatalf("TotalWagered = %v, want > 0", mm.TotalWagered)
-	}
-	if mm.ParlayLegs < mm.Bets {
-		t.Fatalf("ParlayLegs(%d) < Bets(%d)", mm.ParlayLegs, mm.Bets)
-	}
-
-	rows, err := readBetLogCSV(filepath.Join(logDir, betLogFileSim))
-	if err != nil {
-		t.Fatal(err)
-	}
-	placed := 0
-	for _, row := range rows {
-		if row[11] != parlayMarkerEnd {
-			continue
-		}
-		placed++
-		stake, err := strconv.ParseFloat(row[6], 64)
-		if err != nil || stake <= 0 {
-			t.Fatalf("parlay END row stake %q: %v", row[6], err)
-		}
-	}
-	if placed != mm.Bets {
-		t.Fatalf("bet log END PARLAY rows = %d, stats.Bets = %d", placed, mm.Bets)
-	}
-}
-
 func TestWalkParlayTrack_ratesGapMiddleRow(t *testing.T) {
 	t.Parallel()
 
@@ -629,7 +432,7 @@ func TestWalkParlayTrack_ratesGapMiddleRow(t *testing.T) {
 	var stats BacktestStats
 	stats.MatchesWalk = len(eligible)
 
-	if err := walkParlayTrack(ctx, cfg, eligible, rates, client, rng, parlayStrategySim, &stats, nil, log, 1, historicalWinnerSide()); err != nil {
+	if err := walkParlayTrack(ctx, cfg, eligible, rates, client, rng, parlayStrategySim, &stats, log, 1, historicalWinnerSide()); err != nil {
 		t.Fatal(err)
 	}
 	if stats.Bets != 3 {

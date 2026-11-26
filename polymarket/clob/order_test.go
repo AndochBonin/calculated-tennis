@@ -1,7 +1,6 @@
 package clob
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,10 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	mmclient "github.com/AndochBonin/calculated-tennis/moneymanager/pkg/client"
-	"github.com/AndochBonin/calculated-tennis/moneymanager/pkg/testserver"
 	"github.com/AndochBonin/calculated-tennis/polymarket/models"
-	"github.com/shopspring/decimal"
 )
 
 func TestGetOrdersSetsAuthHeaders(t *testing.T) {
@@ -144,175 +140,6 @@ func TestGetOrdersCreateRequestError(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "create request") {
 		t.Fatalf("expected create request error, got: %v", err)
 	}
-}
-
-func TestClobSignatureTypeFromEnv_Table(t *testing.T) {
-	tests := []struct {
-		name      string
-		envVal    string
-		want      uint8
-		wantErr   string
-		unsetEnv  bool
-	}{
-		{name: "unset_defaults_to_3", unsetEnv: true, want: 3},
-		{name: "empty_defaults_to_3", envVal: "", want: 3},
-		{name: "whitespace_defaults_to_3", envVal: "   \t", want: 3},
-		{name: "zero", envVal: "0", want: 0},
-		{name: "one", envVal: "1", want: 1},
-		{name: "two", envVal: "2", want: 2},
-		{name: "three", envVal: "3", want: 3},
-		{name: "trimmed_three", envVal: "  3  ", want: 3},
-		{name: "invalid_non_numeric", envVal: "abc", wantErr: "POLYMARKET_CLOB_SIGNATURE_TYPE"},
-		{name: "invalid_float", envVal: "1.5", wantErr: "POLYMARKET_CLOB_SIGNATURE_TYPE"},
-		{name: "invalid_negative", envVal: "-1", wantErr: "must be 0..3"},
-		{name: "invalid_four", envVal: "4", wantErr: "must be 0..3"},
-		{name: "invalid_large", envVal: "99", wantErr: "must be 0..3"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.unsetEnv {
-				t.Setenv("POLYMARKET_CLOB_SIGNATURE_TYPE", "")
-			} else {
-				t.Setenv("POLYMARKET_CLOB_SIGNATURE_TYPE", tt.envVal)
-			}
-
-			got, err := clobSignatureTypeFromEnv()
-			if tt.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-					t.Fatalf("want error containing %q, got err=%v", tt.wantErr, err)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if got != tt.want {
-				t.Fatalf("got %d want %d", got, tt.want)
-			}
-		})
-	}
-}
-
-// Well-known Anvil/Hardhat default account #0 private key (tests only).
-const testBuildLimitOrderPrivateKeyHex = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-
-func startTestMoneyManagerGRPC(t *testing.T, deposit string) *mmclient.Client {
-	t.Helper()
-	addr, cleanup, err := testserver.Start(testserver.Config{
-		PrivateKeyHex:        testBuildLimitOrderPrivateKeyHex,
-		DefaultDepositWallet: deposit,
-		DefaultSignatureType: 3,
-	})
-	if err != nil {
-		t.Fatalf("testserver.Start: %v", err)
-	}
-	t.Cleanup(cleanup)
-
-	c, err := mmclient.Dial(context.Background(), addr)
-	if err != nil {
-		t.Fatalf("Dial: %v", err)
-	}
-	t.Cleanup(func() { _ = c.Close() })
-	return c
-}
-
-func TestBuildLimitOrder_ErrNoDepositWallet(t *testing.T) {
-	t.Setenv("POLYMARKET_DEPOSIT_WALLET", "")
-	t.Setenv("DEPOSIT_WALLET", "")
-
-	mm := startTestMoneyManagerGRPC(t, "0x1111111111111111111111111111111111111111")
-	c := NewClient(WithBaseURL("http://unused.example"))
-	price := decimal.RequireFromString("0.5")
-	size := decimal.RequireFromString("1")
-	_, err := c.BuildLimitOrder(context.Background(), mm, "1", models.OrderSideBuy, price, size, false, 0)
-	if err == nil || !strings.Contains(err.Error(), "deposit wallet not configured") {
-		t.Fatalf("expected deposit wallet error, got: %v", err)
-	}
-}
-
-func TestBuildLimitOrder_ErrInvalidSignatureTypeEnv(t *testing.T) {
-	t.Setenv("POLYMARKET_CLOB_SIGNATURE_TYPE", "not-a-number")
-	t.Setenv("POLYMARKET_DEPOSIT_WALLET", "")
-
-	mm := startTestMoneyManagerGRPC(t, "0x1111111111111111111111111111111111111111")
-	deposit := "0x1111111111111111111111111111111111111111"
-	c := NewClient(WithDepositWallet(deposit))
-	price := decimal.RequireFromString("0.5")
-	size := decimal.RequireFromString("1")
-	_, err := c.BuildLimitOrder(context.Background(), mm, "1", models.OrderSideBuy, price, size, false, 0)
-	if err == nil || !strings.Contains(err.Error(), "POLYMARKET_CLOB_SIGNATURE_TYPE") {
-		t.Fatalf("expected signature type env error, got: %v", err)
-	}
-}
-
-func TestBuildLimitOrder_SuccessBuyAndSell(t *testing.T) {
-	t.Setenv("POLYMARKET_CLOB_SIGNATURE_TYPE", "")
-	t.Setenv("POLYMARKET_DEPOSIT_WALLET", "")
-
-	deposit := "0x1111111111111111111111111111111111111111"
-	mm := startTestMoneyManagerGRPC(t, deposit)
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/time" {
-			t.Fatalf("path: %s", r.URL.Path)
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("1730000999"))
-	}))
-	defer srv.Close()
-
-	c := NewClient(WithBaseURL(srv.URL), WithServerSignedTime(true), WithDepositWallet(deposit))
-	const exp int64 = 1800000000
-	price := decimal.RequireFromString("0.55")
-	size := decimal.RequireFromString("10")
-	tokenID := "123456789"
-	ctx := context.Background()
-
-	t.Run("buy", func(t *testing.T) {
-		p, err := c.BuildLimitOrder(ctx, mm, tokenID, models.OrderSideBuy, price, size, false, exp)
-		if err != nil {
-			t.Fatalf("BuildLimitOrder: %v", err)
-		}
-		if p == nil {
-			t.Fatal("nil payload")
-		}
-		if p.Side != models.OrderSideBuy {
-			t.Fatalf("Side: got %q", p.Side)
-		}
-		if !strings.EqualFold(p.Maker, deposit) || !strings.EqualFold(p.Signer, deposit) {
-			t.Fatalf("maker/signer: got maker=%q signer=%q want %q", p.Maker, p.Signer, deposit)
-		}
-		if p.TokenID != tokenID {
-			t.Fatalf("TokenID: got %q", p.TokenID)
-		}
-		if p.Expiration != "1800000000" || p.Timestamp != "1730000999000" {
-			t.Fatalf("Expiration/Timestamp: got exp=%q ts=%q", p.Expiration, p.Timestamp)
-		}
-		if p.SignatureType != 3 {
-			t.Fatalf("SignatureType: got %d want 3", p.SignatureType)
-		}
-		if !strings.HasPrefix(p.Signature, "0x") || len(p.Signature) < 10 {
-			t.Fatalf("Signature: got %q", p.Signature)
-		}
-		makerAmt, takerAmt := p.MakerAmount, p.TakerAmount
-		if makerAmt == "" || takerAmt == "" {
-			t.Fatalf("amounts empty: maker=%q taker=%q", makerAmt, takerAmt)
-		}
-	})
-
-	t.Run("sell", func(t *testing.T) {
-		p, err := c.BuildLimitOrder(ctx, mm, tokenID, models.OrderSideSell, price, size, true, exp)
-		if err != nil {
-			t.Fatalf("BuildLimitOrder: %v", err)
-		}
-		if p.Side != models.OrderSideSell {
-			t.Fatalf("Side: got %q", p.Side)
-		}
-		if !strings.HasPrefix(p.Signature, "0x") {
-			t.Fatalf("Signature: got %q", p.Signature)
-		}
-	})
 }
 
 func placeOrderTestEnv(t *testing.T) {

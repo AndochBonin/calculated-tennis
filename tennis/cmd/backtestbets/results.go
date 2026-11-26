@@ -26,12 +26,12 @@ func (s BacktestStats) returnPct(stake float64) float64 {
 	return 100 * s.FinalBalance / wagered
 }
 
-func printBacktestResults(w io.Writer, result BacktestRunResult, stake float64, mm *MoneyManagerConfig) {
-	printLabeledBacktestResults(w, "sim", result.Sim, stake, mm)
+func printBacktestResults(w io.Writer, result BacktestRunResult, stake float64) {
+	printLabeledBacktestResults(w, "sim", result.Sim, stake)
 	fmt.Fprintln(w)
-	printLabeledBacktestResults(w, "sim-form", result.SimForm, stake, mm)
+	printLabeledBacktestResults(w, "sim-form", result.SimForm, stake)
 	fmt.Fprintln(w)
-	printLabeledBacktestResults(w, "favorite", result.Favorite, stake, mm)
+	printLabeledBacktestResults(w, "favorite", result.Favorite, stake)
 }
 
 func (s BacktestStats) surfaceResultsLine() string {
@@ -50,7 +50,7 @@ func formatSurfacePart(st surfaceBetStats) string {
 	return fmt.Sprintf("%d/%d(%.0f%%)", st.Wins, st.Bets, pct)
 }
 
-// notionalBankroll is initial USDC plus net PnL, floored at zero (matches money-manager sizing).
+// notionalBankroll is initial USDC plus net PnL, floored at zero.
 func notionalBankroll(initial, netPnL float64) float64 {
 	b := initial + netPnL
 	if b < 0 {
@@ -59,12 +59,9 @@ func notionalBankroll(initial, netPnL float64) float64 {
 	return b
 }
 
-func printLabeledBacktestResults(w io.Writer, label string, stats BacktestStats, stake float64, mm *MoneyManagerConfig) {
+func printLabeledBacktestResults(w io.Writer, label string, stats BacktestStats, stake float64) {
 	fmt.Fprintf(w, "[%s]\n", label)
 	fmt.Fprintf(w, "net_pnl=%.2f\n", stats.FinalBalance)
-	if mm != nil {
-		fmt.Fprintf(w, "bankroll=%.2f\n", notionalBankroll(mm.InitialBalance, stats.FinalBalance))
-	}
 	fmt.Fprintf(w, "gross_profit=%.2f gross_loss=%.2f\n", stats.GrossProfit, stats.GrossLoss)
 	fmt.Fprintf(w, "bets=%d wins=%d losses=%d skipped=%d\n",
 		stats.Bets, stats.Wins, stats.Losses, stats.Skipped)
@@ -79,8 +76,5 @@ func printLabeledBacktestResults(w io.Writer, label string, stats BacktestStats,
 	}
 	fmt.Fprintf(w, "win_rate=%.2f%%\n", 100*stats.winRate())
 	fmt.Fprintf(w, "return_pct=%.2f%%\n", stats.returnPct(stake))
-	if mm != nil {
-		fmt.Fprintf(w, "total_wagered=%.2f\n", stats.TotalWagered)
-	}
 	fmt.Fprintln(w, stats.surfaceResultsLine())
 }
