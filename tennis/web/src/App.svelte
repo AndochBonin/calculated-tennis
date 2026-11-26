@@ -51,7 +51,7 @@
   }
 </script>
 
-<div class="ct">
+<div class="ct" style:--hl={t.court}>
   <div class="mosaic" aria-hidden="true">
     {#each mosaic(form.surface) as c}<span style:background-color={c}></span>{/each}
   </div>
