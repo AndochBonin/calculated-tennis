@@ -1,17 +1,12 @@
 package clob
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/AndochBonin/calculated-tennis/polymarket/models"
 )
-
-// jsonMarshalFn is swappable in tests to exercise marshal error paths (normally unreachable for these structs).
-var jsonMarshalFn = json.Marshal
 
 func (c *Client) GetOrders() (*models.OrdersResponse, error) {
 	req, err := http.NewRequest(http.MethodGet, c.baseURL+"/data/orders", nil)
@@ -37,102 +32,4 @@ func (c *Client) GetOrders() (*models.OrdersResponse, error) {
 	}
 
 	return &orders, nil
-}
-
-// PlaceOrder submits a signed order to POST /order. owner is the API key UUID for the order owner.
-func (c *Client) PlaceOrder(payload *models.OrderPayload, owner string, orderType models.OrderType) (*models.PlaceOrderResponse, error) {
-	owner = strings.TrimSpace(owner)
-	if owner == "" {
-		owner = strings.TrimSpace(c.apiKey)
-	}
-	if owner == "" {
-		return nil, fmt.Errorf("place order: owner is empty and POLYMARKET_API_KEY is not configured")
-	}
-
-	req := models.PlaceOrderRequest{
-		Order:     *payload,
-		Owner:     owner,
-		OrderType: orderType,
-		PostOnly:  false,
-		DeferExec: false,
-	}
-
-	body, err := jsonMarshalFn(req)
-	if err != nil {
-		return nil, fmt.Errorf("marshal order: %w", err)
-	}
-
-	httpReq, err := http.NewRequest(http.MethodPost, c.baseURL+"/order", bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-	c.addAuthHeaders(httpReq, string(body))
-
-	resp, err := c.http.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("place order: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, errUnexpectedHTTP("place order", resp)
-	}
-
-	var out models.PlaceOrderResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, fmt.Errorf("decode place order response: %w", err)
-	}
-
-	if !out.Success || out.ErrorMsg != "" {
-		if out.ErrorMsg != "" {
-			return nil, fmt.Errorf("place order: %s", out.ErrorMsg)
-		}
-		return nil, fmt.Errorf("place order: rejected (success=false)")
-	}
-
-	return &out, nil
-}
-
-func (c *Client) CancelOrder(orderID string) error {
-	body, err := jsonMarshalFn(models.CancelOrderRequest{OrderID: orderID})
-	if err != nil {
-		return fmt.Errorf("marshal cancel order: %w", err)
-	}
-
-	httpReq, err := http.NewRequest(http.MethodDelete, c.baseURL+"/order", bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-	c.addAuthHeaders(httpReq, string(body))
-
-	resp, err := c.http.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("cancel order: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return errUnexpectedHTTP("cancel order", resp)
-	}
-
-	var out models.CancelOrderResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return fmt.Errorf("decode cancel order response: %w", err)
-	}
-
-	if reason, ok := out.NotCanceled[orderID]; ok {
-		return fmt.Errorf("cancel order: %s", reason)
-	}
-
-	for _, id := range out.Canceled {
-		if id == orderID {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("cancel order: order %q not listed in canceled", orderID)
 }
