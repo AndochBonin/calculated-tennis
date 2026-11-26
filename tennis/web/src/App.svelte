@@ -24,15 +24,24 @@
   async function run(sims) {
     const id = ++req;
     view = 'loading';
+    const json = async (r) => {
+      const body = await r.json();
+      if (!r.ok) throw new Error(body.error || r.statusText);
+      return body;
+    };
     try {
-      const r = await fetch('/api/simulate', {
+      const surface = THEMES[form.surface].id;
+      const [playerA, playerB] = [form.nameA.trim(), form.nameB.trim()];
+      // GET so the browser HTTP cache (Cache-Control from the server) skips repeat scrapes.
+      const rates = await Promise.all([playerA, playerB].map((p) =>
+        fetch(`/api/rates?player=${encodeURIComponent(p)}&surface=${surface}`).then(json)));
+      if (id !== req) return;
+      const body = await fetch('/api/simulate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerA: form.nameA, playerB: form.nameB, surface: THEMES[form.surface].id, format: config.formats[form.format].id, sims })
-      });
-      const body = await r.json();
+        body: JSON.stringify({ playerA, playerB, surface, format: config.formats[form.format].id, sims, rates })
+      }).then(json);
       if (id !== req) return;
-      if (!r.ok) throw new Error(body.error || r.statusText);
       result = body;
       view = 'results';
     } catch (e) {

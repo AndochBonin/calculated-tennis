@@ -7,6 +7,10 @@
 //
 // For UI development run this alongside `npm run dev` in web/ (Vite proxies /api here).
 //
+// Tennis Abstract is scraped only by GET /api/rates (one player, one surface),
+// which the browser caches for TENNISABSTRACT_CACHE_TTL; POST /api/simulate takes
+// those rates and touches nothing external.
+//
 // Optional env: REDIS_ADDR or REDIS_URL enables the Redis rate cache;
 // TENNISABSTRACT_CACHE_TTL sets its TTL. Alpha resolves per surface from
 // TENNISABSTRACT_ALPHA_*; form tuning from TENNISABSTRACT_FORM_*_{HARD|CLAY|GRASS}.
@@ -56,23 +60,18 @@ var surfaces = []tennisabstract.MatchSurface{
 	tennisabstract.SurfaceHard, tennisabstract.SurfaceClay, tennisabstract.SurfaceGrass,
 }
 
-// fetchRates returns both players' form-adjusted hold/break rates for the
+// fetchRate returns one player's form-adjusted hold/break rates for the
 // surface. A variable so tests can stub out Tennis Abstract.
-var fetchRates = func(ctx context.Context, client *tennisabstract.Client, names [2]string, surface tennisabstract.MatchSurface) ([2]tennis.PlayerRates, error) {
-	formOpts := tennisabstract.FormOptionsFromEnv(surface)
-	var rates [2]tennis.PlayerRates
-	for i, name := range names {
-		stats, err := client.GetPlayerStats(ctx, name)
-		if err != nil {
-			return rates, fmt.Errorf("%s: %w", name, err)
-		}
-		adj, err := tennisabstract.AdjustedHoldBreak(stats, formOpts)
-		if err != nil {
-			return rates, fmt.Errorf("%s: %w", name, err)
-		}
-		rates[i] = tennis.PlayerRates{HoldPct: adj.HoldPct, BreakPct: adj.BreakPct}
+var fetchRate = func(ctx context.Context, client *tennisabstract.Client, name string, surface tennisabstract.MatchSurface) (tennis.PlayerRates, error) {
+	stats, err := client.GetPlayerStats(ctx, name)
+	if err != nil {
+		return tennis.PlayerRates{}, err
 	}
-	return rates, nil
+	adj, err := tennisabstract.AdjustedHoldBreak(stats, tennisabstract.FormOptionsFromEnv(surface))
+	if err != nil {
+		return tennis.PlayerRates{}, err
+	}
+	return tennis.PlayerRates{HoldPct: adj.HoldPct, BreakPct: adj.BreakPct}, nil
 }
 
 func main() {
@@ -99,7 +98,8 @@ func main() {
 func newMux(client *tennisabstract.Client) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/config", handleConfig)
-	mux.HandleFunc("POST /api/simulate", func(w http.ResponseWriter, r *http.Request) { handleSimulate(w, r, client) })
+	mux.HandleFunc("GET /api/rates", func(w http.ResponseWriter, r *http.Request) { handleRates(w, r, client) })
+	mux.HandleFunc("POST /api/simulate", handleSimulate)
 	dist, err := fs.Sub(web.Dist, "dist")
 	if err != nil {
 		panic(err)
@@ -126,17 +126,41 @@ func handleConfig(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"players": players, "surfaces": sc, "formats": formats})
 }
 
-type simRequest struct {
-	PlayerA string `json:"playerA"`
-	PlayerB string `json:"playerB"`
-	Surface string `json:"surface"`
-	Format  string `json:"format"`
-	Sims    int    `json:"sims"`
-}
-
 type rates struct {
 	Hold float64 `json:"hold"`
 	Brk  float64 `json:"brk"`
+}
+
+// handleRates scrapes one player's rates. Successes are browser-cacheable;
+// errors are not, so a transient failure isn't pinned for hours.
+func handleRates(w http.ResponseWriter, r *http.Request, client *tennisabstract.Client) {
+	q := r.URL.Query()
+	name := strings.TrimSpace(q.Get("player"))
+	if name == "" {
+		writeErr(w, http.StatusBadRequest, "player name is required")
+		return
+	}
+	surface, err := tennisabstract.ParseMatchSurface(q.Get("surface"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	pr, err := fetchRate(r.Context(), client, name, surface)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, fmt.Sprintf("%s: %v", name, err))
+		return
+	}
+	w.Header().Set("Cache-Control", fmt.Sprintf("private, max-age=%d", int(tennisabstract.CacheTTLFromEnv().Seconds())))
+	writeJSON(w, http.StatusOK, rates{pr.HoldPct, pr.BreakPct})
+}
+
+type simRequest struct {
+	PlayerA string   `json:"playerA"`
+	PlayerB string   `json:"playerB"`
+	Surface string   `json:"surface"`
+	Format  string   `json:"format"`
+	Sims    int      `json:"sims"`
+	Rates   [2]rates `json:"rates"`
 }
 
 // simMatch is one simulated match: f = first server (0 = A, 1 = B), s = sets as
@@ -158,7 +182,7 @@ type simResponse struct {
 	Matches []simMatch `json:"matches"`
 }
 
-func handleSimulate(w http.ResponseWriter, r *http.Request, client *tennisabstract.Client) {
+func handleSimulate(w http.ResponseWriter, r *http.Request) {
 	var req simRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
@@ -189,12 +213,18 @@ func handleSimulate(w http.ResponseWriter, r *http.Request, client *tennisabstra
 		return
 	}
 
-	pr, err := fetchRates(r.Context(), client, [2]string{req.PlayerA, req.PlayerB}, surface)
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, err.Error())
-		return
-	}
 	alpha := tennisabstract.AlphaFromEnv(surface)
+	pr := [2]tennis.PlayerRates{{HoldPct: req.Rates[0].Hold, BreakPct: req.Rates[0].Brk}, {HoldPct: req.Rates[1].Hold, BreakPct: req.Rates[1].Brk}}
+	// Rates now come from the client. Bound each server's game-win chance:
+	// at 0 or 1 for both players, tiebreaks never reach a 2-point margin and the
+	// simulation never ends.
+	for i := range pr {
+		p, err := tennis.GameWinProb(pr[i].HoldPct, pr[1-i].BreakPct, alpha)
+		if err != nil || p < 0.01 || p > 0.99 {
+			writeErr(w, http.StatusBadRequest, "rates out of range")
+			return
+		}
+	}
 	rng, err := newSeededRNG()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())

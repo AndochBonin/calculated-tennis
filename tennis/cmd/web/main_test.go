@@ -20,14 +20,10 @@ func post(t *testing.T, body string) *httptest.ResponseRecorder {
 	return rec
 }
 
-func TestSimulate(t *testing.T) {
-	orig := fetchRates
-	t.Cleanup(func() { fetchRates = orig })
-	fetchRates = func(context.Context, *tennisabstract.Client, [2]string, tennisabstract.MatchSurface) ([2]tennis.PlayerRates, error) {
-		return [2]tennis.PlayerRates{{HoldPct: 0.85, BreakPct: 0.3}, {HoldPct: 0.75, BreakPct: 0.2}}, nil
-	}
+const okRates = `"rates":[{"hold":0.85,"brk":0.3},{"hold":0.75,"brk":0.2}]`
 
-	rec := post(t, `{"playerA":"A","playerB":"B","surface":"clay","format":"gs-men","sims":200}`)
+func TestSimulate(t *testing.T) {
+	rec := post(t, `{"playerA":"A","playerB":"B","surface":"clay","format":"gs-men","sims":200,`+okRates+`}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body)
 	}
@@ -63,24 +59,56 @@ func TestSimulate(t *testing.T) {
 	}
 
 	for _, body := range []string{
-		`{"playerA":"A","playerB":"B","surface":"clay","format":"atp","sims":0}`,
-		`{"playerA":"A","playerB":"B","surface":"clay","format":"atp","sims":100001}`,
-		`{"playerA":"A","playerB":"B","surface":"carpet","format":"atp","sims":10}`,
-		`{"playerA":"A","playerB":"B","surface":"hard","format":"bo7","sims":10}`,
-		`{"playerA":" ","playerB":"B","surface":"hard","format":"atp","sims":10}`,
+		`{"playerA":"A","playerB":"B","surface":"clay","format":"atp","sims":0,` + okRates + `}`,
+		`{"playerA":"A","playerB":"B","surface":"clay","format":"atp","sims":100001,` + okRates + `}`,
+		`{"playerA":"A","playerB":"B","surface":"carpet","format":"atp","sims":10,` + okRates + `}`,
+		`{"playerA":"A","playerB":"B","surface":"hard","format":"bo7","sims":10,` + okRates + `}`,
+		`{"playerA":" ","playerB":"B","surface":"hard","format":"atp","sims":10,` + okRates + `}`,
+		`{"playerA":"A","playerB":"B","surface":"hard","format":"atp","sims":10,"rates":[{"hold":1.5,"brk":0.3},{"hold":0.75,"brk":0.2}]}`,
+		// Both always hold: tiebreaks would never end.
+		`{"playerA":"A","playerB":"B","surface":"hard","format":"atp","sims":10,"rates":[{"hold":1,"brk":0},{"hold":1,"brk":0}]}`,
 		`not json`,
 	} {
 		if rec := post(t, body); rec.Code != http.StatusBadRequest {
 			t.Errorf("%s: status %d, want 400", body, rec.Code)
 		}
 	}
+}
 
-	fetchRates = func(context.Context, *tennisabstract.Client, [2]string, tennisabstract.MatchSurface) ([2]tennis.PlayerRates, error) {
-		return [2]tennis.PlayerRates{}, errors.New("Nobody: player not found")
+func TestRates(t *testing.T) {
+	orig := fetchRate
+	t.Cleanup(func() { fetchRate = orig })
+	t.Setenv("TENNISABSTRACT_CACHE_TTL", "")
+	fetchRate = func(_ context.Context, _ *tennisabstract.Client, name string, _ tennisabstract.MatchSurface) (tennis.PlayerRates, error) {
+		if name == "Nobody" {
+			return tennis.PlayerRates{}, errors.New("player not found")
+		}
+		return tennis.PlayerRates{HoldPct: 0.85, BreakPct: 0.3}, nil
 	}
-	rec = post(t, `{"playerA":"Nobody","playerB":"B","surface":"hard","format":"atp","sims":10}`)
-	if rec.Code != http.StatusBadGateway || !strings.Contains(rec.Body.String(), "player not found") {
-		t.Fatalf("status %d body %s, want 502 with error", rec.Code, rec.Body)
+	get := func(query string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		newMux(nil).ServeHTTP(rec, httptest.NewRequest("GET", "/api/rates?"+query, nil))
+		return rec
+	}
+
+	rec := get("player=Jannik+Sinner&surface=clay")
+	var r rates
+	if err := json.NewDecoder(rec.Body).Decode(&r); err != nil || rec.Code != http.StatusOK || r != (rates{0.85, 0.3}) {
+		t.Fatalf("status %d rates %+v err %v", rec.Code, r, err)
+	}
+	if cc := rec.Header().Get("Cache-Control"); !strings.Contains(cc, "max-age=21600") {
+		t.Fatalf("Cache-Control = %q", cc)
+	}
+
+	for _, q := range []string{"player=+&surface=clay", "player=A&surface=carpet"} {
+		if rec := get(q); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: status %d, want 400", q, rec.Code)
+		}
+	}
+
+	rec = get("player=Nobody&surface=hard")
+	if rec.Code != http.StatusBadGateway || !strings.Contains(rec.Body.String(), "Nobody: player not found") || rec.Header().Get("Cache-Control") != "" {
+		t.Fatalf("status %d body %s cache %q, want uncached 502", rec.Code, rec.Body, rec.Header().Get("Cache-Control"))
 	}
 }
 
