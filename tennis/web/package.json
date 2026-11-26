@@ -1,0 +1,14 @@
+{
+  "name": "calculated-tennis-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && touch dist/.gitkeep"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.3.2",
+    "svelte": "^5.59.2",
+    "vite": "^8.4.0"
+  }
+}

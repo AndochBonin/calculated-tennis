@@ -29,6 +29,9 @@ type Match struct {
 	FirstServer   Player
 	setsWon       [2]int
 	CompletedSets []SetResult
+	// SetTiebreaks holds tiebreak points per completed set, parallel to
+	// CompletedSets ({0,0} when the set had no tiebreak).
+	SetTiebreaks [][2]int
 	Current       Set
 	server        Player // who serves the next regular game or tiebreak point
 	Done          bool
@@ -63,6 +66,10 @@ func (m *Match) Clone() Match {
 	if len(m.CompletedSets) > 0 {
 		c.CompletedSets = make([]SetResult, len(m.CompletedSets))
 		copy(c.CompletedSets, m.CompletedSets)
+	}
+	if len(m.SetTiebreaks) > 0 {
+		c.SetTiebreaks = make([][2]int, len(m.SetTiebreaks))
+		copy(c.SetTiebreaks, m.SetTiebreaks)
 	}
 	if m.Winner != nil {
 		w := *m.Winner
