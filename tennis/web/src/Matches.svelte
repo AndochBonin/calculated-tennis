@@ -52,6 +52,30 @@
     <span class="plain" style="font-weight:600">{m.players[0]} <span class="muted" style="font-weight:400">vs</span> {m.players[1]}</span>
     <span class="plain" style="font-variant-numeric:tabular-nums;text-align:right" style:color={m.live ? t.court : '#555'}>{status(m)}</span>
   </button>
+  {#if m.slug === slug}<div class="inline">{@render detail()}</div>{/if}
+{/snippet}
+
+{#snippet detail()}
+  {#if sel}
+    <div style="display:flex;flex-direction:column;gap:.4em">
+      <span class="lbl" style="justify-content:space-between"><span class="mark" style="gap:.5em"><span class="sq"></span>{sel.tournament} · {sel.live ? 'Live' : 'Upcoming'}</span><span style="color:#1652f0;font-weight:600">Polymarket</span></span>
+      <span class="plain" style="font-size:1.2em;font-variant-numeric:tabular-nums">{status(sel)}</span>
+    </div>
+    {#each sel.players as name, i}
+      {@const p = prices?.[sel.tokens[i]]}
+      <div class="price" style:border-left-color={i ? t.winB : t.winA}>
+        <span class="plain" style="font-weight:600;font-size:1.15em">{name}</span>
+        <span class="big" style="font-variant-numeric:tabular-nums">{mid(p) == null ? '—' : pct(mid(p))}</span>
+        <span class="muted" style="font-variant-numeric:tabular-nums">Bid {cents(p?.bid)} · Ask {cents(p?.ask)}</span>
+      </div>
+    {/each}
+    {#if priceErr}
+      <p role="alert" class="mark" style="margin:0;color:#b3261e;font-weight:600"><span class="sq" style="background:#b3261e"></span>{priceErr}</p>
+    {/if}
+    <span class="muted" style="font-size:.85em">Moneyline midpoint · prices refresh every 5s · scores may lag a few minutes</span>
+  {:else}
+    <span class="muted">Select a match to see its prices</span>
+  {/if}
 {/snippet}
 
 {#snippet list(title, items)}
@@ -81,28 +105,7 @@
         {/if}
       </div>
 
-      <div style="display:flex;flex-direction:column;gap:1.4em;min-width:0">
-        {#if sel}
-          <div style="display:flex;flex-direction:column;gap:.4em">
-            <span class="lbl" style="justify-content:space-between"><span class="mark" style="gap:.5em"><span class="sq"></span>{sel.tournament} · {sel.live ? 'Live' : 'Upcoming'}</span><span style="color:#1652f0;font-weight:600">Polymarket</span></span>
-            <span class="plain" style="font-size:1.2em;font-variant-numeric:tabular-nums">{status(sel)}</span>
-          </div>
-          {#each sel.players as name, i}
-            {@const p = prices?.[sel.tokens[i]]}
-            <div class="price" style:border-left-color={i ? t.winB : t.winA}>
-              <span class="plain" style="font-weight:600;font-size:1.15em">{name}</span>
-              <span class="big" style="font-variant-numeric:tabular-nums">{mid(p) == null ? '—' : pct(mid(p))}</span>
-              <span class="muted" style="font-variant-numeric:tabular-nums">Bid {cents(p?.bid)} · Ask {cents(p?.ask)}</span>
-            </div>
-          {/each}
-          {#if priceErr}
-            <p role="alert" class="mark" style="margin:0;color:#b3261e;font-weight:600"><span class="sq" style="background:#b3261e"></span>{priceErr}</p>
-          {/if}
-          <span class="muted" style="font-size:.85em">Moneyline midpoint · prices refresh every 5s · scores may lag a few minutes</span>
-        {:else}
-          <span class="muted">Select a match to see its prices</span>
-        {/if}
-      </div>
+      <div class="side" style="display:flex;flex-direction:column;gap:1.4em;min-width:0">{@render detail()}</div>
     </div>
   </div>
 </section>
@@ -113,6 +116,12 @@
   .row:hover { background: #f4f4f4; }
   .row.on { border-color: #141414; }
   .price { display: flex; flex-direction: column; gap: .3em; padding: .8em 1.1em; border-left: .35em solid; background: #fff; }
+  /* Narrow: .res is one column (app.css), so show prices under the selected row instead of below the list */
+  .inline { display: none; }
+  @media (max-width: 1000px) {
+    .inline { display: flex; flex-direction: column; gap: 1em; padding: .4em 0 .8em; }
+    .side { display: none !important; }
+  }
   @media (max-width: 640px) {
     .row { grid-template-columns: minmax(0, 1fr); gap: .2em; }
   }
