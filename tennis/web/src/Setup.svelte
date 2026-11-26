@@ -66,7 +66,7 @@
     <div class="cols" style="flex:1 1 auto;min-height:0;display:grid;gap:2.6em">
       <div style="display:flex;flex-direction:column;gap:.8em;min-height:0">
         <span id="ct-surf-l" class="lbl"><span class="sq"></span>Court surface</span>
-        <div role="radiogroup" aria-labelledby="ct-surf-l" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.9em">
+        <div role="radiogroup" aria-labelledby="ct-surf-l" class="tiles">
           {#each THEMES as s, i}
             <button type="button" role="radio" aria-checked={i === form.surface} class="tile" style:border-color={i === form.surface ? '#141414' : 'transparent'} onclick={() => (form.surface = i)}>
               <Court t={s} />
@@ -88,7 +88,7 @@
           {@render player('B', 'e.g. Carlos Alcaraz', THEMES[form.surface].winB)}
         </div>
 
-        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1em">
+        <div class="two">
           <div style="display:flex;flex-direction:column;gap:.6em;min-width:0">
             <span id="ct-fmt-l" class="lbl"><span class="sq"></span>Format</span>
             <div role="group" aria-labelledby="ct-fmt-l" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));border:1px solid #c8c8c8;background:#fff">
@@ -129,4 +129,8 @@
   .tile:hover { background: #f4f4f4; }
   .sug { text-align: left; padding: .55em 1em; min-height: 2.6em; border: 0; background: transparent; font-size: 1em; }
   .sug:hover, .sug:focus-visible { background: #f0f0f0; }
+  @media (max-width: 640px) {
+    .tile { display: grid; grid-template-columns: 8.5em minmax(0, 1fr); align-items: center; }
+    .tile > :global(svg) { grid-row: 1 / span 2; }
+  }
 </style>

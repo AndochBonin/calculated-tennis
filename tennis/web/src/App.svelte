@@ -81,10 +81,10 @@
   {/if}
 
   <div class="frame">
-    <header style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:center;gap:1em;font-size:1.15em">
+    <header class="head">
       <span class="mark" style="font-weight:600"><span class="sq" style="width:.75em;height:.75em"></span>Calculated Tennis</span>
-      <span class="mark" style="justify-content:center"><span class="sq" style="width:.75em;height:.75em"></span>Monte Carlo match projection</span>
-      <span class="mark" style="justify-content:flex-end"><span class="sq" style="width:.75em;height:.75em"></span>{clockStr(now)}</span>
+      <span class="mark head-mid"><span class="sq" style="width:.75em;height:.75em"></span>Monte Carlo match projection</span>
+      <span class="mark"><span class="sq" style="width:.75em;height:.75em"></span>{clockStr(now)}</span>
     </header>
 
     <div style="display:flex;min-height:0">

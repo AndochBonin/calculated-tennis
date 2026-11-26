@@ -130,7 +130,7 @@
       <span class="mark" style="gap:.5em;font-size:.95em"><span class="sq" style:background={statusDot}></span>{statusWord} · Step 2 of 2</span>
     </div>
     <div class="res" style="flex:1 1 auto;min-height:0;display:grid;gap:2.6em">
-      <div style="display:flex;flex-direction:column;min-height:0">
+      <div class="resl" style="display:flex;flex-direction:column;min-height:0">
         {#if view === 'loading'}
           <div role="status" style="flex:1 1 auto;display:flex;flex-direction:column;justify-content:center;gap:1.2em">
             <span class="big">Simulating…</span>
@@ -143,7 +143,7 @@
           </div>
         {:else if view === 'results' && result}
           <div style="flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:1.1em">
-            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1.6em">
+            <div class="players">
               {#each rows as p}
                 <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:1em;min-width:0;padding-bottom:.8em;border-bottom:3px solid {p.color}">
                   <div style="display:flex;flex-direction:column;gap:.3em;min-width:0">
@@ -155,7 +155,7 @@
                 </div>
               {/each}
             </div>
-            <div style="flex:1 1 auto;min-height:10em;position:relative">
+            <div class="gridbox">
               <!-- svelte-ignore a11y_no_interactive_element_to_noninteractive_role -->
               <canvas bind:this={canvas} tabindex="0" role="application" aria-roledescription="match grid" onclick={pickSquare} onkeydown={gridKey}
                 aria-label="{fmtInt(result.sims)} simulated matches, one square each: {rows[0].name} won {rows[0].pct}, {rows[1].name} won {rows[1].pct}. Colour runs from player A through grey (close) to player B. Click or use arrow keys to inspect a match."
@@ -222,9 +222,9 @@
         </dl>
       </div>
     </div>
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:1em;padding-top:1.2em;border-top:1px solid #e2e2e2">
+    <div class="actions">
       <button type="button" class="opt" style="min-height:3.4em;padding:0 1.4em;border-color:#141414;font-size:1em" onclick={ontosetup}>← Back to setup</button>
-      <span class="muted plain" style="font-size:.85em;text-align:center">Hold/break rates: Tennis Abstract, form-adjusted for the surface.</span>
+      <span class="muted plain note" style="font-size:.85em;text-align:center">Hold/break rates: Tennis Abstract, form-adjusted for the surface.</span>
       <button type="button" class="run" style="min-height:3.4em;padding:0 1.6em;font-size:1em" disabled={view === 'loading' || !result} onclick={onrerun}>Run again</button>
     </div>
   </div>
