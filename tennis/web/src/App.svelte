@@ -3,9 +3,11 @@
   import { THEMES, mosaic, clockStr } from './theme.js';
   import Setup from './Setup.svelte';
   import Results from './Results.svelte';
+  import Matches from './Matches.svelte';
 
   let config = $state({ players: [], surfaces: [], formats: [{ id: 'atp', label: 'Best of 3' }, { id: 'gs-men', label: 'Best of 5' }] });
   let form = $state({ surface: 2, nameA: '', nameB: '', format: 0, sims: '10000' });
+  let screen = $state('matches'); // matches | sim
   let view = $state('setup'); // setup | loading | results | error
   let result = $state.raw(null);
   let error = $state('');
@@ -92,15 +94,17 @@
   <div class="frame">
     <header class="head">
       <span class="mark" style="font-weight:600"><span class="sq" style="width:.75em;height:.75em"></span>Calculated Tennis</span>
-      <span class="mark head-mid"><span class="sq" style="width:.75em;height:.75em"></span>Monte Carlo match projection</span>
+      <span class="mark head-mid"><span class="sq" style="width:.75em;height:.75em"></span>{screen === 'matches' ? 'Live and upcoming matches' : 'Monte Carlo match projection'}</span>
       <span class="mark"><span class="sq" style="width:.75em;height:.75em"></span>{clockStr(now)}</span>
     </header>
 
     <div style="display:flex;min-height:0">
-      {#if view === 'setup'}
-        <Setup bind:form {config} {alphaOf} onrun={run} onreset={reset} />
+      {#if screen === 'matches'}
+        <Matches {t} onsimulate={() => (screen = 'sim')} />
+      {:else if view === 'setup'}
+        <Setup bind:form {config} {alphaOf} onrun={run} onreset={reset} onmatches={() => (screen = 'matches')} />
       {:else}
-        <Results {view} {form} {config} {result} {error} {t} alpha={alphaOf(form.surface)} ontosetup={toSetup} onrerun={() => run(result.sims)} />
+        <Results {view} {form} {config} {result} {error} {t} alpha={alphaOf(form.surface)} ontosetup={toSetup} onrerun={() => run(result.sims)} onmatches={() => (screen = 'matches')} />
       {/if}
     </div>
 

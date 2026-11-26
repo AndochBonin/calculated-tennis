@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && touch dist/.gitkeep"
+    "build": "vite build && touch dist/.gitkeep",
+    "test": "node --test src/*.test.js"
   },
   "devDependencies": {
     "@fontsource/inter-tight": "^5.3.0",

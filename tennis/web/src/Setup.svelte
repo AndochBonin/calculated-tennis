@@ -2,7 +2,7 @@
   import { THEMES } from './theme.js';
   import Court from './Court.svelte';
 
-  let { form = $bindable(), config, alphaOf, onrun, onreset } = $props();
+  let { form = $bindable(), config, alphaOf, onrun, onreset, onmatches } = $props();
 
   const PRESETS = [1000, 10000, 100000];
   let active = $state(null); // 'A' | 'B' while that input wants suggestions
@@ -61,6 +61,7 @@
   <div class="body">
     <div class="titlebar">
       <h1 id="ct-setup-h">Match setup</h1>
+      <button type="button" class="opt mark" style="min-height:2.6em;padding:0 1em;font-size:.9em" onclick={onmatches}><span class="sq"></span>Matches</button>
     </div>
     <div class="cols" style="flex:1 1 auto;min-height:0;display:grid;gap:2.6em">
       <div class="surf" style="display:flex;flex-direction:column;gap:.8em;min-height:0">
@@ -121,6 +122,7 @@
 
       <div class="how" style="display:flex;flex-direction:column;gap:.6em;max-width:40em">
         <span class="lbl"><span class="sq"></span>How it works</span>
+        <p class="muted plain" style="margin:0;font-size:.9em;line-height:1.4">A Monte Carlo simulation: the match is played out thousands of times, game by game, with each game (and each tiebreak point) won by the server with chance P below. A player's win % is the share of simulated matches they win.</p>
         <p class="pw plain" aria-label="P equals one half plus one half times (H minus B) to the power alpha if H is at least B, otherwise one half minus one half times (B minus H) to the power alpha">
           <span class="pw-lhs" aria-hidden="true">P =</span>
           <span class="pw-brace" aria-hidden="true">&#123;</span>
