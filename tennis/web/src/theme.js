@@ -1,6 +1,6 @@
 // Surface themes, background mosaic and colour helpers (ported from the design prototype).
 
-// Order matches the server's /api/config surfaces: hard, clay, grass.
+// Order matches the engine's config() surfaces: hard, clay, grass.
 export const THEMES = [
   { id: 'hard', blurb: 'Fast, true bounce. Big serving pays.', name: 'Hard', upper: 'HARD', court: '#3a6fc4', surround: '#3f9a7a', dot: '#3a6fc4',
     winA: '#2350b8', winB: '#127a58', split: 0.86, bias: 0.18,
@@ -77,7 +77,7 @@ export function scale(colA, colB, n) {
   return o;
 }
 
-// summarize turns a server match {f, s} into winner (0 = A, 1 = B), total
+// summarize turns a simulated match {f, s} into winner (0 = A, 1 = B), total
 // games per player, and the winner's share of all games played.
 export function summarize(m) {
   const games = [0, 0], sets = [0, 0];

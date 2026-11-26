@@ -1,42 +1,20 @@
 SHELL := /bin/zsh
 
-.PHONY: get-stats fetch-rates fetch-career fill-rates-dr calibrate-alpha calibrate-form backtest web
+.PHONY: wasm web build test
 
-get-stats:
-	go run ./cmd/getstats $(if $(PLAYER),-player="$(PLAYER)",) \
-		$(if $(SURFACE),-surface=$(SURFACE),)
+# The Go engine compiled for the browser, plus Go's matching JS loader.
+wasm:
+	GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o web/public/tennis.wasm ./cmd/wasm
+	cp "$$(go env GOROOT)/lib/wasm/wasm_exec.js" web/public/
 
-fetch-rates:
-	go run ./cmd/fetchrates $(if $(MATCHES),-matches=$(MATCHES),) \
-		$(if $(OUT),-out=$(OUT),) \
-		$(if $(MERGE),-merge=true,)
+# Dev server with hot reload (rerun `make wasm` after Go changes).
+web: wasm
+	cd web && npm ci && npm run dev
 
-fill-rates-dr:
-	go run ./cmd/fetchrates $(if $(MATCHES),-matches=$(MATCHES),) \
-		$(if $(OUT),-out=$(OUT),) \
-		-merge -fill-dr
-
-fetch-career:
-	go run ./cmd/fetchcareer $(if $(MATCHES),-matches=$(MATCHES),) \
-		$(if $(DIR),-dir=$(DIR),) \
-		$(if $(MERGE),-merge=true,)
-
-calibrate-alpha:
-	@test -f tennisabstract/testdata/player_rates_2024.json || $(MAKE) fetch-rates
-	go run ./cmd/calibratealpha
-
-calibrate-form:
-	@test -f tennisabstract/testdata/player_rates_2024.json || $(MAKE) fetch-rates
-	@test -d tennisabstract/testdata/career && ls tennisabstract/testdata/career/*.json >/dev/null 2>&1 || $(MAKE) fetch-career
-	go run ./cmd/calibrateform
-
-backtest:
-	@test -f tennisabstract/testdata/player_rates_2024.json || $(MAKE) fetch-rates
-	@test -d tennisabstract/testdata/career && ls tennisabstract/testdata/career/*.json >/dev/null 2>&1 || $(MAKE) fetch-career
-	go run ./cmd/backtestbets $(if $(MIN_PICK),-min-pick=$(MIN_PICK),) \
-		$(if $(STAKE),-stake=$(STAKE),) \
-		$(if $(SIMS),-sims=$(SIMS),)
-
-web:
+# Static site in web/dist.
+build: wasm
 	cd web && npm ci && npm run build
-	go run ./cmd/web
+
+test:
+	go test ./...
+	cd web && npm test

@@ -9,6 +9,4 @@ var (
 	ErrUnexpectedColumns = errors.New("tennisabstract: unexpected columns")
 	// ErrNoSeasonData is returned when season hold/break cannot be resolved for the requested year.
 	ErrNoSeasonData = errors.New("tennisabstract: no season data for evaluation year")
-	// ErrPlayerNotFound is returned when Tennis Abstract has no page for the player.
-	ErrPlayerNotFound = errors.New("tennisabstract: player not found")
 )
