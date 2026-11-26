@@ -100,6 +100,27 @@ func SimulateFresh(format MatchFormat, rates [2]PlayerRates, alpha float64, n in
 	return result, nil
 }
 
+// SimulateFreshMatches is SimulateFresh but returns every finished match, so
+// callers can inspect scorelines instead of just win counts.
+func SimulateFreshMatches(format MatchFormat, rates [2]PlayerRates, alpha float64, n int, rng *rand.Rand) ([]Match, error) {
+	if err := validateSimulationParams(rates, alpha, n, rng); err != nil {
+		return nil, err
+	}
+	matches := make([]Match, 0, n)
+	for i := 0; i < n; i++ {
+		first, err := firstServerCoinToss(rng)
+		if err != nil {
+			return nil, err
+		}
+		m := NewMatch(first, format)
+		if _, err := runOnceSim(m, rates, alpha, rng); err != nil {
+			return nil, err
+		}
+		matches = append(matches, *m)
+	}
+	return matches, nil
+}
+
 // Simulate runs n Monte Carlo match completions from initial without mutating initial.
 // Each run starts from initial.Clone(). alpha must be positive; rates must be in [0,1].
 // n == 0 returns an empty result with no error.

@@ -483,3 +483,45 @@ func TestSimulateFresh_firstServerError(t *testing.T) {
 		t.Fatalf("SimulateFresh = %v, want %v", err, ErrNilRNG)
 	}
 }
+
+func TestSimulateFreshMatches(t *testing.T) {
+	rng := rand.New(rand.NewPCG(1, 2))
+	rates := [2]PlayerRates{{HoldPct: 0.8, BreakPct: 0.25}, {HoldPct: 0.78, BreakPct: 0.22}}
+	f := GrandSlamMenFormat()
+	matches, err := SimulateFreshMatches(f, rates, 1, 50, rng)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 50 {
+		t.Fatalf("len = %d, want 50", len(matches))
+	}
+	sawTB := false
+	for i, m := range matches {
+		if !m.Done || m.Winner == nil {
+			t.Fatalf("match %d not done", i)
+		}
+		a, b := m.SetsWon()
+		if max(a, b) != f.SetsToWin || (a > b) != (*m.Winner == A) {
+			t.Fatalf("match %d: sets %d-%d winner %v", i, a, b, *m.Winner)
+		}
+		if len(m.SetTiebreaks) != len(m.CompletedSets) {
+			t.Fatalf("match %d: %d tiebreaks for %d sets", i, len(m.SetTiebreaks), len(m.CompletedSets))
+		}
+		for j, s := range m.CompletedSets {
+			tb := m.SetTiebreaks[j]
+			isTB := s.GamesA+s.GamesB == 13
+			if isTB != (tb != [2]int{}) {
+				t.Fatalf("match %d set %d: games %+v tiebreak %v", i, j, s, tb)
+			}
+			if isTB {
+				sawTB = true
+				if (s.GamesA > s.GamesB) != (tb[0] > tb[1]) {
+					t.Fatalf("match %d set %d: tiebreak winner disagrees with set winner", i, j)
+				}
+			}
+		}
+	}
+	if !sawTB {
+		t.Fatal("expected at least one tiebreak in 50 close best-of-5 matches")
+	}
+}

@@ -3,18 +3,18 @@
 SHELL := /bin/zsh
 
 .PHONY: run up down push-binary live-clob place-order test creds deploy-wallet venv localstack-init-secret
-.PHONY: get-stats fetch-rates fetch-career fill-rates-dr calibrate-alpha calibrate-form backtest sim
+.PHONY: get-stats fetch-rates fetch-career fill-rates-dr calibrate-alpha calibrate-form backtest
 .PHONY: test-workspace check-balance
 
-# make run launches the tennis TUI. Polymarket's own run stays reachable via
+# make run builds and launches the tennis web UI. Polymarket's own run stays reachable via
 # `make -C polymarket run`.
 run:
-	$(MAKE) -C tennis tui
+	$(MAKE) -C tennis web
 
 up down push-binary live-clob place-order test creds deploy-wallet venv localstack-init-secret:
 	$(MAKE) -C polymarket $@
 
-get-stats fetch-rates fetch-career fill-rates-dr calibrate-alpha calibrate-form backtest sim:
+get-stats fetch-rates fetch-career fill-rates-dr calibrate-alpha calibrate-form backtest:
 	$(MAKE) -C tennis $@
 
 check-balance:

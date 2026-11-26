@@ -1,6 +1,6 @@
 SHELL := /bin/zsh
 
-.PHONY: get-stats fetch-rates fetch-career fill-rates-dr calibrate-alpha calibrate-form backtest sim tui
+.PHONY: get-stats fetch-rates fetch-career fill-rates-dr calibrate-alpha calibrate-form backtest web
 
 get-stats:
 	go run ./cmd/getstats $(if $(PLAYER),-player="$(PLAYER)",) \
@@ -37,15 +37,6 @@ backtest:
 		$(if $(STAKE),-stake=$(STAKE),) \
 		$(if $(SIMS),-sims=$(SIMS),)
 
-sim:
-	go run ./cmd/simmatch $(if $(PLAYER_A),-player-a="$(PLAYER_A)",) \
-		$(if $(PLAYER_B),-player-b="$(PLAYER_B)",) \
-		$(if $(SURFACE),-surface=$(SURFACE),) \
-		$(if $(FORMAT),-format=$(FORMAT),) \
-		$(if $(ALPHA),-alpha=$(ALPHA),) \
-		$(if $(SIMS),-sims=$(SIMS),) \
-		$(if $(SCORE),-score="$(SCORE)",) \
-		$(if $(FIRST_SERVER),-first-server=$(FIRST_SERVER),)
-
-tui:
-	go run ./cmd/tui
+web:
+	cd web && npm ci && npm run build
+	go run ./cmd/web

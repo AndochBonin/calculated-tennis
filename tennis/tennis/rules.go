@@ -50,6 +50,11 @@ func (m *Match) completeSet(winner Player) error {
 		GamesA: m.Current.Games[0],
 		GamesB: m.Current.Games[1],
 	})
+	var tb [2]int
+	if m.Current.Phase == Tiebreak {
+		tb = m.Current.TiebreakPoints
+	}
+	m.SetTiebreaks = append(m.SetTiebreaks, tb)
 
 	w := winner.index()
 	m.setsWon[w]++
