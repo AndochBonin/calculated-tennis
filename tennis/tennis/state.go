@@ -32,10 +32,10 @@ type Match struct {
 	// SetTiebreaks holds tiebreak points per completed set, parallel to
 	// CompletedSets ({0,0} when the set had no tiebreak).
 	SetTiebreaks [][2]int
-	Current       Set
-	server        Player // who serves the next regular game or tiebreak point
-	Done          bool
-	Winner        *Player
+	Current      Set
+	server       Player // who serves the next regular game or tiebreak point
+	Done         bool
+	Winner       *Player
 }
 
 // NewMatch starts a match; firstServer serves game 1 of set 1.
@@ -50,30 +50,4 @@ func NewMatch(firstServer Player, format ...MatchFormat) *Match {
 		FirstServer: firstServer,
 		server:      firstServer,
 	}
-}
-
-// Clone returns a deep copy of m. CompletedSets is copied into a new slice;
-// Winner, when set, points at an independent Player value.
-func (m *Match) Clone() Match {
-	c := Match{
-		Format:      m.Format,
-		FirstServer: m.FirstServer,
-		setsWon:     m.setsWon,
-		Current:     m.Current,
-		server:      m.server,
-		Done:        m.Done,
-	}
-	if len(m.CompletedSets) > 0 {
-		c.CompletedSets = make([]SetResult, len(m.CompletedSets))
-		copy(c.CompletedSets, m.CompletedSets)
-	}
-	if len(m.SetTiebreaks) > 0 {
-		c.SetTiebreaks = make([][2]int, len(m.SetTiebreaks))
-		copy(c.SetTiebreaks, m.SetTiebreaks)
-	}
-	if m.Winner != nil {
-		w := *m.Winner
-		c.Winner = &w
-	}
-	return c
 }

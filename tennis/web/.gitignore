@@ -1,4 +1,4 @@
 node_modules/
-!dist/
-dist/*
-!dist/.gitkeep
+dist/
+public/tennis.wasm
+public/wasm_exec.js

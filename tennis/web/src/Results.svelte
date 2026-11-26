@@ -227,7 +227,7 @@
     </div>
     <div class="actions">
       <button type="button" class="opt" style="min-height:3.4em;padding:0 1.4em;border-color:#141414;font-size:1em" onclick={ontosetup}>← Back to setup</button>
-      <span class="muted plain note" style="font-size:.85em;text-align:center">Hold/break rates: Tennis Abstract, form-adjusted for the surface.</span>
+      <span class="muted plain note" style="font-size:.85em;text-align:center">Hold/break rates: Tennis Abstract, form-adjusted.</span>
       <button type="button" class="run" style="min-height:3.4em;padding:0 1.6em;font-size:1em" disabled={view === 'loading' || !result} onclick={onrerun}>Run again</button>
     </div>
   </div>

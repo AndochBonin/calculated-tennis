@@ -4,6 +4,7 @@
   import Setup from './Setup.svelte';
   import Results from './Results.svelte';
   import Matches from './Matches.svelte';
+  import { call } from './engine.js';
 
   let config = $state({ players: [], surfaces: [], formats: [{ id: 'atp', label: 'Best of 3' }, { id: 'gs-men', label: 'Best of 5' }] });
   let form = $state({ surface: 2, nameA: '', nameB: '', format: 0, sims: '10000' });
@@ -18,7 +19,7 @@
   const alphaOf = (i) => config.surfaces[i]?.alpha;
 
   onMount(() => {
-    fetch('/api/config').then((r) => r.json()).then((c) => (config = c)).catch(() => {});
+    call('config').then((c) => (config = c)).catch(() => {});
     const tick = setInterval(() => (now = new Date()), 30000);
     return () => clearInterval(tick);
   });
@@ -27,27 +28,18 @@
   // Setup to show inline. Only once both players have data do we leave setup.
   async function run(sims) {
     const id = ++req;
-    const json = async (r) => {
-      const body = await r.json();
-      if (!r.ok) throw new Error(body.error || r.statusText);
-      return body;
-    };
     const surface = THEMES[form.surface].id;
     const [playerA, playerB] = [form.nameA.trim(), form.nameB.trim()];
-    // GET so the browser HTTP cache (Cache-Control from the server) skips repeat scrapes.
-    const settled = await Promise.allSettled([playerA, playerB].map((p) =>
-      fetch(`/api/rates?player=${encodeURIComponent(p)}&surface=${surface}`).then(json)));
+    // The browser HTTP cache (Tennis Abstract's max-age) skips repeat fetches.
+    const settled = await Promise.allSettled([playerA, playerB].map((p) => call('rates', p)));
     if (id !== req) return;
     const failed = settled.filter((s) => s.status === 'rejected').map((s) => s.reason.message);
     if (failed.length) return failed.join(' · ');
     const rates = settled.map((s) => s.value);
     view = 'loading';
     try {
-      const body = await fetch('/api/simulate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerA, playerB, surface, format: config.formats[form.format].id, sims, rates })
-      }).then(json);
+      const body = await call('simulate',
+        JSON.stringify({ playerA, playerB, surface, format: config.formats[form.format].id, sims, rates }));
       if (id !== req) return;
       result = body;
       view = 'results';
