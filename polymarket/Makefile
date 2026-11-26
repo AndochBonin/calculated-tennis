@@ -64,10 +64,6 @@ down:
 live-clob:
 	go run ./cmd/liveclob
 
-# Place a 1-share BUY GTC limit order on the live CLOB (real funds / real API).
-place-order:
-	go run ./cmd/placeorder $(if $(PRICE),-price=$(PRICE),) $(TOKEN)
-
 venv:
 	@source .venv/bin/activate; $$SHELL
 

@@ -1,11 +1,9 @@
 package main
 
 import (
-	"context"
 	"math"
 	"testing"
 
-	"github.com/AndochBonin/calculated-tennis/moneymanager/pkg/risk"
 	"github.com/AndochBonin/calculated-tennis/tennis/tennisabstract"
 )
 
@@ -24,7 +22,7 @@ func TestCombinedParlayProbOdds(t *testing.T) {
 	if math.Abs(odds-wantOdds) > 1e-12 {
 		t.Fatalf("odds = %v, want %v", odds, wantOdds)
 	}
-	if math.Abs(combinedParlayEV(legs)-risk.ExpectedValueDecimalOdds(wantP, wantOdds)) > 1e-12 {
+	if math.Abs(combinedParlayEV(legs)-(wantP*wantOdds-1)) > 1e-12 {
 		t.Fatal("combinedParlayEV mismatch")
 	}
 }
@@ -250,7 +248,7 @@ func TestPlaceParlay_updatesStats(t *testing.T) {
 		},
 	}
 	var stats BacktestStats
-	placeParlay(context.Background(), BacktestConfig{}, nil, nil, legs, &stats, 5)
+	placeParlay(nil, legs, &stats, 5)
 	if stats.Bets != 1 {
 		t.Fatalf("Bets = %d, want 1", stats.Bets)
 	}

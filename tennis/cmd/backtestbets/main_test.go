@@ -30,9 +30,6 @@ func TestResolveBacktestInputs_flagsOnly(t *testing.T) {
 	if in.stake != 2.5 || in.minPick != 0.6 || in.sims != 1000 {
 		t.Fatalf("got stake=%v minPick=%v sims=%v", in.stake, in.minPick, in.sims)
 	}
-	if in.moneyManager != nil {
-		t.Fatal("expected nil money manager")
-	}
 	if in.betMode != BetModeSingles || in.maxParlayMatches != 0 {
 		t.Fatalf("got mode=%q maxParlay=%d, want singles/0", in.betMode, in.maxParlayMatches)
 	}
@@ -55,9 +52,6 @@ func TestResolveBacktestInputs_nonInteractiveDefaults(t *testing.T) {
 	if in.stake != defaultStake || in.minPick != defaultMinPick || in.sims != defaultSims {
 		t.Fatalf("got stake=%v minPick=%v sims=%v, want defaults", in.stake, in.minPick, in.sims)
 	}
-	if in.moneyManager != nil {
-		t.Fatal("expected nil money manager")
-	}
 }
 
 func TestResolveBacktestInputs_interactivePrompts(t *testing.T) {
@@ -75,7 +69,6 @@ func TestResolveBacktestInputs_interactivePrompts(t *testing.T) {
 		_, _ = w.WriteString("\n") // min odds default
 		_, _ = w.WriteString("\n") // require positive EV: no
 		_, _ = w.WriteString("\n") // bet mode: singles
-		_, _ = w.WriteString("\n") // money manager: no
 		w.Close()
 	}()
 
@@ -85,9 +78,6 @@ func TestResolveBacktestInputs_interactivePrompts(t *testing.T) {
 	}
 	if in.stake != 5 || in.minPick != 0.55 || in.sims != 2000 {
 		t.Fatalf("got stake=%v minPick=%v sims=%v", in.stake, in.minPick, in.sims)
-	}
-	if in.moneyManager != nil {
-		t.Fatal("expected nil money manager")
 	}
 }
 
@@ -111,9 +101,6 @@ func TestResolveBacktestInputs_interactiveDefaultsOnEnter(t *testing.T) {
 	if in.stake != defaultStake || in.minPick != defaultMinPick || in.minOdds != defaultMinOdds || in.sims != defaultSims {
 		t.Fatalf("got stake=%v minPick=%v sims=%v, want defaults", in.stake, in.minPick, in.sims)
 	}
-	if in.moneyManager != nil {
-		t.Fatal("expected nil money manager")
-	}
 }
 
 func TestResolveBacktestInputs_interactivePartialFlags(t *testing.T) {
@@ -129,7 +116,6 @@ func TestResolveBacktestInputs_interactivePartialFlags(t *testing.T) {
 		_, _ = w.WriteString("\n") // min odds default
 		_, _ = w.WriteString("\n") // require positive EV: no
 		_, _ = w.WriteString("\n") // bet mode: singles
-		_, _ = w.WriteString("\n") // money manager: no
 		w.Close()
 	}()
 
@@ -142,115 +128,6 @@ func TestResolveBacktestInputs_interactivePartialFlags(t *testing.T) {
 	}
 	if in.stake != 3 || in.minPick != 0.7 || in.sims != 500 {
 		t.Fatalf("got stake=%v minPick=%v sims=%v", in.stake, in.minPick, in.sims)
-	}
-}
-
-func TestResolveBacktestInputs_moneyManagerFlagOnly(t *testing.T) {
-	t.Parallel()
-
-	r, w, err := osPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer r.Close()
-	defer w.Close()
-
-	in, err := resolveBacktestInputs(r, backtestInputFlags{
-		moneyManager:   true,
-		initialBalance: "1000",
-		maxOrderUSDC:   "50",
-		maxPctBalance:  "0.1",
-		minShareSize:   "10",
-	}, prompt.IsInteractive)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mm := in.moneyManager
-	if mm == nil {
-		t.Fatal("expected money manager config")
-	}
-	if mm.InitialBalance != 1000 || mm.MaxOrderUSDC != "50" || mm.MaxPctBalance != 0.1 || mm.MinShareSize != 10 {
-		t.Fatalf("got %+v", mm)
-	}
-}
-
-func TestResolveBacktestInputs_moneyManagerFlagDefaults(t *testing.T) {
-	t.Parallel()
-
-	r, w, err := osPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer r.Close()
-	defer w.Close()
-
-	in, err := resolveBacktestInputs(r, backtestInputFlags{
-		moneyManager:   true,
-		initialBalance: "500",
-	}, prompt.IsInteractive)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mm := in.moneyManager
-	if mm == nil {
-		t.Fatal("expected money manager config")
-	}
-	if mm.MaxOrderUSDC != "" || mm.MaxPctBalance != defaultMaxPctBalance || mm.MinShareSize != defaultMinShareSize {
-		t.Fatalf("got %+v", mm)
-	}
-}
-
-func TestResolveBacktestInputs_interactiveMoneyManagerNo(t *testing.T) {
-	t.Parallel()
-
-	r, w, err := osPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	go func() {
-		_, _ = w.WriteString("\n\n\n\n\n\n") // stake, min-pick, sims, min-odds, require-ev, bet mode defaults
-		_, _ = w.WriteString("n\n")
-		w.Close()
-	}()
-
-	in, err := resolveBacktestInputs(r, backtestInputFlags{}, func(*os.File) bool { return true })
-	if err != nil {
-		t.Fatal(err)
-	}
-	if in.moneyManager != nil {
-		t.Fatal("expected nil money manager when user answers no")
-	}
-}
-
-func TestResolveBacktestInputs_interactiveMoneyManagerYes(t *testing.T) {
-	t.Parallel()
-
-	r, w, err := osPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	go func() {
-		_, _ = w.WriteString("\n\n\n\n\n\n") // stake, min-pick, sims, min-odds, require-ev, bet mode defaults
-		_, _ = w.WriteString("y\n")
-		_, _ = w.WriteString("2000\n")
-		_, _ = w.WriteString("\n") // max order: no cap
-		_, _ = w.WriteString("\n") // max pct default
-		_, _ = w.WriteString("\n") // min share default
-		w.Close()
-	}()
-
-	in, err := resolveBacktestInputs(r, backtestInputFlags{}, func(*os.File) bool { return true })
-	if err != nil {
-		t.Fatal(err)
-	}
-	mm := in.moneyManager
-	if mm == nil {
-		t.Fatal("expected money manager config")
-	}
-	if mm.InitialBalance != 2000 || mm.MaxOrderUSDC != "" || mm.MaxPctBalance != defaultMaxPctBalance || mm.MinShareSize != defaultMinShareSize {
-		t.Fatalf("got %+v", mm)
 	}
 }
 
@@ -276,15 +153,6 @@ func TestResolveSims_invalid(t *testing.T) {
 	t.Parallel()
 
 	_, err := resolveSims("0", nil)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-}
-
-func TestResolveInitialBalance_invalid(t *testing.T) {
-	t.Parallel()
-
-	_, err := resolveInitialBalance("", nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -334,15 +202,6 @@ func TestResolveMinOdds_invalid(t *testing.T) {
 	_, err := resolveMinOdds("0.5", nil)
 	if err == nil {
 		t.Fatal("expected error for min-odds < 1")
-	}
-}
-
-func TestResolveMaxPctBalance_invalid(t *testing.T) {
-	t.Parallel()
-
-	_, err := resolveMaxPctBalance("1.5", nil)
-	if err == nil {
-		t.Fatal("expected error")
 	}
 }
 
@@ -415,7 +274,6 @@ func TestResolveBacktestInputs_interactiveParlay(t *testing.T) {
 		_, _ = w.WriteString("\n\n\n\n\n") // stake, min-pick, sims, min-odds, require-ev defaults
 		_, _ = w.WriteString("parlay\n")
 		_, _ = w.WriteString("2\n")
-		_, _ = w.WriteString("\n") // money manager: no
 		w.Close()
 	}()
 
@@ -440,7 +298,6 @@ func TestResolveBacktestInputs_interactiveParlayDefaultMaxLegs(t *testing.T) {
 		_, _ = w.WriteString("\n\n\n\n\n")
 		_, _ = w.WriteString("p\n")
 		_, _ = w.WriteString("\n") // max legs default
-		_, _ = w.WriteString("\n")  // money manager: no
 		w.Close()
 	}()
 

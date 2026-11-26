@@ -8,7 +8,7 @@ Non-secret configuration (CLOB base URL, log level, data API host, etc.) stays i
 
 1. `godotenv.Load()` (Go) or `load_dotenv()` (Python) runs first.
 2. If `POLYMARKET_SECRETS_MANAGER_SECRET_ID` is non-empty, the app fetches the secret once, parses JSON, and sets **only keys present with non-empty string values** via `os.Setenv` / `os.environ` (overwriting any value already set for those keys).
-3. Existing code (`clob.NewClient`, `placeorder`, etc.) still reads from the environment; no change to those call sites.
+3. Existing code (`clob.NewClient`, `liveclob`, etc.) still reads from the environment; no change to those call sites.
 
 Entry points that call the loader:
 
@@ -16,7 +16,6 @@ Entry points that call the loader:
 |--------|--------|
 | `go run .` / `make run` | `secrets.MustLoadFromEnvIfConfigured` in `main.go` |
 | `make live-clob` | same in `cmd/liveclob/main.go` |
-| `make place-order` | same in `cmd/placeorder/main.go` |
 | `make creds` | `must_load_from_env_if_configured()` in `cmd/python/generate_creds.py` |
 
 If the secret ID is set and the fetch fails, the process logs an error and exits (misconfiguration should be obvious).

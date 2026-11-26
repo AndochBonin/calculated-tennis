@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 
-	"github.com/AndochBonin/calculated-tennis/moneymanager/pkg/risk"
 	"github.com/AndochBonin/calculated-tennis/tennis/tennis"
 	"github.com/AndochBonin/calculated-tennis/tennis/tennisabstract"
 )
@@ -230,47 +229,18 @@ func settleParlay(legs []parlayLeg, stake float64) float64 {
 	return -stake
 }
 
-// placeParlay allocates stake at combined odds, updates stats, and logs the anchor row.
+// placeParlay places a fixed stake at combined odds, updates stats, and logs the anchor row.
 func placeParlay(
-	ctx context.Context,
-	cfg BacktestConfig,
-	alloc *risk.Allocator,
 	log *strategyBetLog,
 	legs []parlayLeg,
 	stats *BacktestStats,
-	fixedStake float64,
+	stake float64,
 ) {
 	if len(legs) == 0 {
 		return
 	}
 	combinedWinProb, combinedOdds := combinedParlayProbOdds(legs)
-	anchor := legs[0]
-
-	if alloc != nil {
-		tryPlaceParlayWithAllocator(ctx, alloc, log, legs, stats, anchor, combinedWinProb, combinedOdds, fixedStake)
-		return
-	}
-	applyParlayWithLog(log, legs, stats, anchor, combinedWinProb, combinedOdds, fixedStake)
-}
-
-func tryPlaceParlayWithAllocator(
-	ctx context.Context,
-	alloc *risk.Allocator,
-	log *strategyBetLog,
-	legs []parlayLeg,
-	stats *BacktestStats,
-	anchor parlayLeg,
-	combinedWinProb, combinedOdds, fixedStake float64,
-) {
-	stake, ok := allocateStake(ctx, alloc, combinedOdds)
-	if !ok {
-		stats.Skipped++
-		if log != nil {
-			log.recordParlaySkip(anchor.match, skipReasonALLOC, combinedWinProb, combinedOdds)
-		}
-		return
-	}
-	applyParlayWithLog(log, legs, stats, anchor, combinedWinProb, combinedOdds, stake)
+	applyParlayWithLog(log, legs, stats, legs[0], combinedWinProb, combinedOdds, stake)
 }
 
 func applyParlayWithLog(
@@ -357,5 +327,5 @@ func simulateParlayWinsA(
 // combinedParlayEV is E = p×odds − 1 for a parlay at combined decimal odds.
 func combinedParlayEV(legs []parlayLeg) float64 {
 	p, odds := combinedParlayProbOdds(legs)
-	return risk.ExpectedValueDecimalOdds(p, odds)
+	return p*odds - 1
 }

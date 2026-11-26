@@ -38,40 +38,6 @@ func TestBacktestStats_returnPct_usesTotalWagered(t *testing.T) {
 	}
 }
 
-func TestPrintBacktestResults_moneyManagerShowsTotalWagered(t *testing.T) {
-	t.Parallel()
-
-	var buf bytes.Buffer
-	printBacktestResults(&buf, BacktestRunResult{
-		Sim: BacktestStats{
-			Bets:         2,
-			Wins:         1,
-			Losses:       1,
-			FinalBalance: 1,
-			TotalWagered: 20,
-			GrossProfit:  11,
-			GrossLoss:    10,
-		},
-	}, 1, &MoneyManagerConfig{InitialBalance: 100})
-
-	out := buf.String()
-	if strings.Contains(out, "final_balance=") {
-		t.Fatalf("output should use net_pnl, not final_balance:\n%s", out)
-	}
-	if !strings.Contains(out, "net_pnl=1.00") {
-		t.Fatalf("output missing net_pnl:\n%s", out)
-	}
-	if !strings.Contains(out, "bankroll=101.00") {
-		t.Fatalf("output missing bankroll:\n%s", out)
-	}
-	if !strings.Contains(out, "total_wagered=20.00") {
-		t.Fatalf("output missing total_wagered:\n%s", out)
-	}
-	if !strings.Contains(out, "return_pct=5.00%") {
-		t.Fatalf("output missing correct return_pct:\n%s", out)
-	}
-}
-
 func TestPrintBacktestResults_fixedStakeOmitsTotalWagered(t *testing.T) {
 	t.Parallel()
 
@@ -84,7 +50,7 @@ func TestPrintBacktestResults_fixedStakeOmitsTotalWagered(t *testing.T) {
 			FinalBalance: 1,
 			TotalWagered: 2,
 		},
-	}, 1, nil)
+	}, 1)
 
 	out := buf.String()
 	if strings.Contains(out, "total_wagered") {

@@ -142,10 +142,10 @@ func TestBetLog_recordParlaySkip(t *testing.T) {
 		t.Fatalf("parlay skip extras: size=%q legs=%q", row[12], row[15])
 	}
 
-	log.recordParlaySkip(m, skipReasonALLOC, 0.3, 4.5)
+	log.recordParlaySkip(m, skipReasonNEGEV, 0.2, 4.5)
 	row = log.rows[1]
-	if row[11] != skipReasonALLOC || row[13] != "4.50" || row[14] != "0.3000" {
-		t.Fatalf("ALLOC skip row: %v", row[11:])
+	if row[11] != skipReasonNEGEV || row[13] != "4.50" || row[14] != "0.2000" {
+		t.Fatalf("NEG_EV skip row: %v", row[11:])
 	}
 }
 

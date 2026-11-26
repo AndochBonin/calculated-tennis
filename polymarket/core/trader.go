@@ -12,7 +12,7 @@ type TradeSignal struct {
 	Side           models.OrderSide
 	Price          string  // decimal string from the feed
 	NegRisk        bool
-	WinProbability float64 // model P(outcome wins), (0,1]; required for ProcessSignal
+	WinProbability float64 // model P(outcome wins), (0,1]
 }
 
 // Trader is the interface for a topic-specific trading strategy.
