@@ -47,7 +47,7 @@
 </script>
 
 {#snippet row(m)}
-  <button type="button" class="row" class:on={m.slug === slug} aria-pressed={m.slug === slug} onclick={() => (slug = m.slug)}>
+  <button type="button" class="row" class:on={m.slug === slug} aria-pressed={m.slug === slug} onclick={() => (slug = slug === m.slug ? null : m.slug)}>
     <span class="muted" style="font-size:.85em">{m.tournament}</span>
     <span class="plain" style="font-weight:600">{m.players[0]} <span class="muted" style="font-weight:400">vs</span> {m.players[1]}</span>
     <span class="plain" style="font-variant-numeric:tabular-nums;text-align:right" style:color={m.live ? t.court : '#555'}>{status(m)}</span>
