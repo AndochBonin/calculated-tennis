@@ -118,7 +118,7 @@
           {/if}
           <div style="display:flex;gap:.6em">
             <button type="button" class="run" style="flex:1 1 auto;min-height:3.8em;font-size:1.15em;display:flex;align-items:center;justify-content:space-between;padding:0 1.2em" disabled={busy} aria-busy={busy} onclick={submit}>
-              <span class:pulse={busy}>{busy ? 'Fetching player data…' : 'Run simulation'}</span><span style="font-weight:400;opacity:.7">Enter ↵</span>
+              <span class:pulse={busy}>{busy ? 'Fetching player data…' : 'Run simulation'}</span><span class="kbd" style="font-weight:400;opacity:.7">Enter ↵</span>
             </button>
             <button type="button" class="opt" style="min-height:3.8em;padding:0 1.2em;font-size:.95em" onclick={() => { err = ''; onreset(); }}>Reset</button>
           </div>
@@ -163,6 +163,7 @@
   dt { font-weight: 600; color: #141414; }
   dd { margin: 0; }
   @media (max-width: 640px) {
+    .kbd { display: none; }
     .tile { display: grid; grid-template-columns: 8.5em minmax(0, 1fr); align-items: center; }
     .tile > :global(svg) { grid-row: 1 / span 2; }
   }
