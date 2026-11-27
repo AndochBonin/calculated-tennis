@@ -1,12 +1,15 @@
 <script>
   import { GREY, LEVELS, fmtInt, pct, mix, scale, strength, summarize } from './theme.js';
+  import { tick } from 'svelte';
   import Court from './Court.svelte';
 
   let { view, form, config, result, error, t, alpha, ontosetup, onrerun, onmatches } = $props();
 
   let canvas = $state();
+  let card = $state();
   let sel = $state(null);
   let layout = null;
+  const SCROLL_MQ = '(max-width: 1000px), (max-height: 640px)';
 
   const outcomes = $derived(result ? result.matches.map(summarize) : []);
   const fmtLabel = $derived(config.formats.find((f) => f.id === result?.format)?.label ?? config.formats[form.format].label);
@@ -49,14 +52,13 @@
   function draw() {
     const c = canvas, out = outcomes;
     if (!c || !out.length || !c.parentNode) return;
-    const box = c.parentNode.getBoundingClientRect();
-    const W = box.width, H = box.height, N = out.length;
+    const box = c.parentNode, W = box.getBoundingClientRect().width, N = out.length;
+    // Scroll mode (same query as app.css): height is free, so size the box to fit the grid exactly
+    // instead of leaving a gap under it. Depends only on W, so the ResizeObserver settles.
+    const free = matchMedia(SCROLL_MQ).matches;
+    let H = free ? Math.min(W, screen.height * 0.7) : box.getBoundingClientRect().height;
     if (W < 4 || H < 4) return;
-    const dpr = window.devicePixelRatio || 1;
-    c.width = Math.round(W * dpr); c.height = Math.round(H * dpr);
-    const ctx = c.getContext('2d');
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, W, H);
+    const dpr = window.devicePixelRatio || 1, ctx = c.getContext('2d');
     // keep a margin so the selection outline is never clipped at the edges
     const M = 4, GW = W - 2 * M, GH = H - 2 * M;
     let size = Math.sqrt((GW * GH) / N), cols, rows;
@@ -66,7 +68,12 @@
       size *= 0.985;
     }
     if (size >= 3) size = Math.floor(size);
-    cols = Math.max(1, Math.floor(GW / size));
+    cols = Math.max(1, Math.floor(GW / size)); rows = Math.ceil(N / cols);
+    if (free) { H = Math.ceil(rows * size + 2 * M); box.style.height = H + 'px'; box.style.minHeight = '0'; }
+    else box.style.height = box.style.minHeight = '';
+    c.width = Math.round(W * dpr); c.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
     const gap = size >= 10 ? 2 : (size >= 4 ? 1 : 0);
     const ox = M + (GW - cols * size) / 2, oy = M;
     const palA = [], palB = [];
@@ -109,7 +116,11 @@
     const col = Math.floor((e.clientX - rect.left - L.ox) / L.size), row = Math.floor((e.clientY - rect.top - L.oy) / L.size);
     if (col < 0 || col >= L.cols || row < 0) return;
     const i = row * L.cols + col;
-    if (i < L.N) sel = i;
+    if (i >= L.N) return;
+    if (i === sel) { sel = null; return; } // tapping the open square again closes it
+    sel = i;
+    // On narrow screens the card sits below the grid; bring it into view (no-op when already visible).
+    tick().then(() => card?.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }));
   }
   function gridKey(e) {
     const L = layout;
@@ -166,7 +177,7 @@
             </div>
             <div class="muted" style="display:flex;flex-wrap:wrap;align-items:center;gap:.6em 2em;font-size:.85em">
               <span>1 square = 1 match ({fmtInt(result.sims)})</span>
-              <span class="mark">
+              <span class="mark" style="flex-wrap:wrap">
                 <span class="mark" style="gap:.4em"><span class="sq" style:background={t.winA}></span>A won every game</span>
                 <span aria-hidden="true" style="display:flex;gap:2px">{#each scale(t.winA, t.winB, 11) as w}<span style="width:.9em;height:.9em" style:background={w}></span>{/each}</span>
                 <span class="mark" style="gap:.4em">B won every game<span class="sq" style:background={t.winB}></span></span>
@@ -187,7 +198,7 @@
         <span class="lbl"><span class="sq"></span>{t.upper} court</span>
         <Court {t} overview />
         {#if m}
-          <div style="display:flex;flex-direction:column;gap:.8em;padding:1em;border:2px solid #141414;background:#fff">
+          <div bind:this={card} style="display:flex;flex-direction:column;gap:.8em;padding:1em;border:2px solid #141414;background:#fff">
             <div style="display:flex;justify-content:space-between;align-items:baseline;gap:1em">
               <span class="lbl"><span class="sq" style:background={m.swatch}></span>Match {m.no}</span>
               <button type="button" class="opt" aria-label="Close match details" style="min-height:2.2em;padding:0 .7em;font-size:.8em" onclick={() => (sel = null)}>Close</button>

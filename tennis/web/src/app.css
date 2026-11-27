@@ -15,7 +15,7 @@ body { margin: 0; background: #f2f6f8; }
 .mosaic { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(48, minmax(0, 1fr)); grid-template-rows: repeat(27, minmax(0, 1fr)); }
 .mosaic span { transition: background-color .5s ease; }
 
-.frame { position: relative; height: 100%; box-sizing: border-box; padding: 1.8em 2.2em; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 1.4em; }
+.frame { position: relative; height: 100%; box-sizing: border-box; padding: 1.8em 2.2em; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; gap: 1.4em; }
 .mark { display: flex; align-items: center; gap: .55em; }
 .sq { display: inline-block; flex: 0 0 auto; width: .65em; height: .65em; background: #141414; }
 .lbl { display: flex; align-items: center; gap: .5em; font-size: .9em; color: #555; }
@@ -23,11 +23,11 @@ body { margin: 0; background: #f2f6f8; }
 .ct .plain { text-transform: none; }
 
 /* Section shell shared by setup and projection */
-.panel { flex: 1 1 auto; display: flex; min-height: 0; background: rgba(255, 255, 255, .93); }
+.panel { flex: 1 1 auto; display: flex; min-height: 0; min-width: 0; background: rgba(255, 255, 255, .93); }
 .rail { flex: 0 0 2.6em; display: flex; align-items: flex-end; justify-content: center; padding: 1.2em 0; border-right: 1px solid #e2e2e2; }
 .rail span { writing-mode: vertical-rl; transform: rotate(180deg); display: flex; align-items: center; gap: .55em; white-space: nowrap; }
 .body { flex: 1 1 auto; min-width: 0; padding: 2em 2.4em; display: flex; flex-direction: column; gap: 1.6em; overflow: hidden; }
-.titlebar { display: flex; align-items: baseline; justify-content: space-between; gap: 1em; }
+.titlebar { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 1em; }
 .titlebar h1 { margin: 0; font-size: 2.4em; font-weight: 500; letter-spacing: -.015em; }
 .big { font-size: 3.2em; font-weight: 500; letter-spacing: -.02em; line-height: 1.05; }
 
@@ -78,14 +78,12 @@ body { margin: 0; background: #f2f6f8; }
   .frame { height: auto; grid-template-rows: auto auto auto; }
   .body { overflow: visible; }
   .mosaic, .layer { position: fixed; }
-  .gridbox { min-height: 22em; }
 }
 /* Tablet */
 @media (max-width: 1000px) {
   .ct { font-size: 15px; }
   .cols, .res { grid-template-columns: minmax(0, 1fr); }
   .cols { grid-template-rows: none; grid-template-areas: "surf" "form" "how"; }
-  .gridbox { min-height: min(70vw, 30em); }
 }
 /* Phone */
 @media (max-width: 640px) {
@@ -98,5 +96,4 @@ body { margin: 0; background: #f2f6f8; }
   .actions > button { flex: 1 1 40%; }
   .note { order: 3; flex-basis: 100%; }
   .field { font-size: 16px; } /* stops iOS zooming on focus */
-  .gridbox { min-height: 90vw; }
 }
