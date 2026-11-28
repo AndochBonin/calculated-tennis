@@ -12,7 +12,7 @@ body { margin: 0; background: #f2f6f8; }
 .ct ::selection { background: var(--hl); color: #fff; }
 
 .layer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.mosaic { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(48, minmax(0, 1fr)); grid-template-rows: repeat(27, minmax(0, 1fr)); }
+.mosaic { position: absolute; top: 50%; left: 50%; translate: -50% -50%; width: max(100vw, 100vh * 48 / 27); aspect-ratio: 48 / 27; display: grid; grid-template-columns: repeat(48, minmax(0, 1fr)); grid-template-rows: repeat(27, minmax(0, 1fr)); }
 .mosaic span { transition: background-color .5s ease; }
 
 .frame { position: relative; height: 100%; box-sizing: border-box; padding: 1.8em 2.2em; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; gap: 1.4em; }
